@@ -1,0 +1,31 @@
+# https://taskfile.dev
+
+version: "3"
+
+tasks:
+  deps:
+    desc: install/update deps
+    cmds:
+      - go mod tidy
+
+  test:
+    desc: run tests
+    aliases: [t]
+    cmds:
+      - go test ./... -cover
+
+  vuln:
+    desc: run govulncheck
+    aliases: [v]
+    cmds:
+      - go tool govulncheck {{.CLI_ARGS}} ./...
+
+  release:
+    desc: tag a new sdk version
+    requires:
+      vars:
+        - tag
+    cmds:
+      - git pull --rebase
+      - git tag {{.tag}}
+      - git push origin {{.tag}}
