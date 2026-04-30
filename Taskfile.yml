@@ -18,7 +18,7 @@ tasks:
     desc: run govulncheck
     aliases: [v]
     cmds:
-      - go tool govulncheck {{.CLI_ARGS}} ./...
+      - govulncheck {{.CLI_ARGS}} ./...
 
   release:
     desc: tag a new sdk version
