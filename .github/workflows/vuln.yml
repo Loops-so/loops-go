@@ -12,5 +12,6 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: go.mod
+      - run: go install golang.org/x/vuln/cmd/govulncheck@latest
       - uses: go-task/setup-task@v2
       - run: task vuln
