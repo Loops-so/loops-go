@@ -60,6 +60,7 @@ client := loops.NewClient("YOUR_API_KEY",
 - Campaigns — `CreateCampaign`, `UpdateCampaign`, `GetCampaign`, `ListCampaigns`
 - Components — `GetComponent`, `ListComponents`
 - Themes — `GetTheme`, `ListThemes`
+- Uploads — `CreateUpload`, `CompleteUpload`
 
 Full reference: [pkg.go.dev/github.com/loops-so/loops-go](https://pkg.go.dev/github.com/loops-so/loops-go).
 
