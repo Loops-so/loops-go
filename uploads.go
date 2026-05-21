@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 )
 
@@ -22,6 +23,13 @@ type CreateUploadResponse struct {
 type CompleteUploadResponse struct {
 	EmailAssetID string `json:"emailAssetId"`
 	FinalURL     string `json:"finalUrl"`
+}
+
+type UploadRequest struct {
+	EmailMessageID string
+	ContentType    string
+	ContentLength  int64
+	Body           io.Reader
 }
 
 func (c *Client) CreateUpload(req CreateUploadRequest) (*CreateUploadResponse, error) {
@@ -51,6 +59,36 @@ func (c *Client) CreateUpload(req CreateUploadRequest) (*CreateUploadResponse, e
 	}
 
 	return &result, nil
+}
+
+func (c *Client) Upload(req UploadRequest) (*CompleteUploadResponse, error) {
+	created, err := c.CreateUpload(CreateUploadRequest{
+		EmailMessageID: req.EmailMessageID,
+		ContentType:    req.ContentType,
+		ContentLength:  req.ContentLength,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	putReq, err := http.NewRequest(http.MethodPut, created.PresignedURL, req.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build upload request: %w", err)
+	}
+	putReq.Header.Set("Content-Type", req.ContentType)
+	putReq.ContentLength = req.ContentLength
+
+	putResp, err := c.httpClient.Do(putReq)
+	if err != nil {
+		return nil, fmt.Errorf("upload to presigned URL failed: %w", err)
+	}
+	defer putResp.Body.Close()
+
+	if putResp.StatusCode < 200 || putResp.StatusCode >= 300 {
+		return nil, fmt.Errorf("upload to presigned URL failed: status %d", putResp.StatusCode)
+	}
+
+	return c.CompleteUpload(created.EmailAssetID)
 }
 
 func (c *Client) CompleteUpload(id string) (*CompleteUploadResponse, error) {

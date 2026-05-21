@@ -1,6 +1,7 @@
 package loops
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io"
@@ -148,6 +149,218 @@ func TestCreateUpload_RequestBody(t *testing.T) {
 	}
 	if body["contentLength"] != float64(2048) {
 		t.Errorf("contentLength = %v, want 2048", body["contentLength"])
+	}
+}
+
+func TestUpload(t *testing.T) {
+	var (
+		gotCreatePath, gotPutPath, gotCompletePath string
+		gotPutMethod, gotPutContentType, gotPutAuth string
+		gotPutBody                                  []byte
+		gotPutContentLength                         int64
+		createCalls, putCalls, completeCalls        int
+	)
+
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		createCalls++
+		gotCreatePath = r.URL.Path
+		body := `{
+			"success": true,
+			"emailAssetId": "asset_abc123",
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123?sig=xyz",
+			"expiresAt": "2026-05-21T10:15:00Z"
+		}`
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	})
+	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+		putCalls++
+		gotPutPath = r.URL.Path
+		gotPutMethod = r.Method
+		gotPutContentType = r.Header.Get("Content-Type")
+		gotPutAuth = r.Header.Get("Authorization")
+		gotPutContentLength = r.ContentLength
+		gotPutBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/uploads/asset_abc123/complete", func(w http.ResponseWriter, r *http.Request) {
+		completeCalls++
+		gotCompletePath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(completeUploadResponse))
+	})
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	imageBytes := []byte("\x89PNG\r\n\x1a\nfake-image-bytes")
+	result, err := client.Upload(UploadRequest{
+		EmailMessageID: "em_abc123",
+		ContentType:    "image/png",
+		ContentLength:  int64(len(imageBytes)),
+		Body:           bytes.NewReader(imageBytes),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if createCalls != 1 || putCalls != 1 || completeCalls != 1 {
+		t.Errorf("call counts: create=%d put=%d complete=%d, want 1/1/1", createCalls, putCalls, completeCalls)
+	}
+	if gotCreatePath != "/uploads" {
+		t.Errorf("create path = %q, want /uploads", gotCreatePath)
+	}
+	if gotPutMethod != http.MethodPut {
+		t.Errorf("put method = %q, want PUT", gotPutMethod)
+	}
+	if gotPutPath != "/storage/asset_abc123" {
+		t.Errorf("put path = %q, want /storage/asset_abc123", gotPutPath)
+	}
+	if gotPutContentType != "image/png" {
+		t.Errorf("put content-type = %q, want image/png", gotPutContentType)
+	}
+	if gotPutAuth != "" {
+		t.Errorf("put auth header = %q, want empty (no bearer leak)", gotPutAuth)
+	}
+	if gotPutContentLength != int64(len(imageBytes)) {
+		t.Errorf("put content-length = %d, want %d", gotPutContentLength, len(imageBytes))
+	}
+	if !bytes.Equal(gotPutBody, imageBytes) {
+		t.Errorf("put body = %v, want %v", gotPutBody, imageBytes)
+	}
+	if gotCompletePath != "/uploads/asset_abc123/complete" {
+		t.Errorf("complete path = %q", gotCompletePath)
+	}
+	if result.EmailAssetID != "asset_abc123" || result.FinalURL != "https://assets.example.com/asset_abc123.png" {
+		t.Errorf("result = %+v", result)
+	}
+}
+
+func TestUpload_CreateFails(t *testing.T) {
+	var putCalls, completeCalls int
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/uploads" {
+			w.WriteHeader(http.StatusBadRequest)
+			w.Write([]byte(`{"success":false,"message":"Unsupported content type"}`))
+			return
+		}
+		completeCalls++
+	})
+	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+		putCalls++
+		w.WriteHeader(http.StatusOK)
+	})
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.Upload(UploadRequest{
+		EmailMessageID: "em_abc123",
+		ContentType:    "image/bmp",
+		ContentLength:  4,
+		Body:           bytes.NewReader([]byte("body")),
+	})
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Errorf("StatusCode = %d, want 400", apiErr.StatusCode)
+	}
+	if putCalls != 0 {
+		t.Errorf("put called %d times, want 0", putCalls)
+	}
+	if completeCalls != 0 {
+		t.Errorf("complete called %d times, want 0", completeCalls)
+	}
+}
+
+func TestUpload_PutFails(t *testing.T) {
+	var completeCalls int
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		body := `{
+			"success": true,
+			"emailAssetId": "asset_abc123",
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123",
+			"expiresAt": "2026-05-21T10:15:00Z"
+		}`
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	})
+	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`<Error><Code>AccessDenied</Code></Error>`))
+	})
+	mux.HandleFunc("/uploads/asset_abc123/complete", func(w http.ResponseWriter, r *http.Request) {
+		completeCalls++
+		w.WriteHeader(http.StatusOK)
+	})
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.Upload(UploadRequest{
+		EmailMessageID: "em_abc123",
+		ContentType:    "image/png",
+		ContentLength:  4,
+		Body:           bytes.NewReader([]byte("body")),
+	})
+
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("error = %q, want it to mention status 403", err.Error())
+	}
+	if completeCalls != 0 {
+		t.Errorf("complete called %d times, want 0", completeCalls)
+	}
+}
+
+func TestUpload_CompleteFails(t *testing.T) {
+	mux := http.NewServeMux()
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
+		body := `{
+			"success": true,
+			"emailAssetId": "asset_abc123",
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123",
+			"expiresAt": "2026-05-21T10:15:00Z"
+		}`
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	})
+	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	})
+	mux.HandleFunc("/uploads/asset_abc123/complete", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusTooEarly)
+		w.Write([]byte(`{"success":false,"message":"Upload not yet complete"}`))
+	})
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.Upload(UploadRequest{
+		EmailMessageID: "em_abc123",
+		ContentType:    "image/png",
+		ContentLength:  4,
+		Body:           bytes.NewReader([]byte("body")),
+	})
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusTooEarly {
+		t.Errorf("StatusCode = %d, want 425", apiErr.StatusCode)
 	}
 }
 
