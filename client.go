@@ -1,3 +1,22 @@
+// Package loops is the official Go SDK for the Loops API (https://loops.so).
+//
+// It provides a [Client] for the Loops REST API, covering contacts, contact
+// properties, mailing lists, events, transactional and campaign emails,
+// email messages, components, and themes.
+//
+// Construct a client with an API key from your Loops account, then call
+// methods on it:
+//
+//	client := loops.NewClient("YOUR_API_KEY")
+//
+//	err := client.SendEvent(loops.SendEventRequest{
+//	    Email:     "user@example.com",
+//	    EventName: "signup",
+//	})
+//
+// Requests to 429 and 5xx responses are retried automatically with
+// exponential backoff and jitter. API errors are returned as [*APIError]
+// and can be inspected with [errors.As].
 package loops
 
 import (
@@ -10,10 +29,13 @@ import (
 	"time"
 )
 
+// DefaultBaseURL is the base URL for the Loops API used by [NewClient]
+// when [WithBaseURL] is not supplied.
+const DefaultBaseURL = "https://app.loops.so/api/v1"
+
 const (
-	DefaultBaseURL = "https://app.loops.so/api/v1"
-	maxRetries     = 2
-	baseDelay      = 500 * time.Millisecond
+	maxRetries = 2
+	baseDelay  = 500 * time.Millisecond
 )
 
 var sleep = time.Sleep
@@ -22,15 +44,25 @@ func isRetryable(statusCode int) bool {
 	return statusCode == http.StatusTooManyRequests || statusCode >= 500
 }
 
+// APIError is returned by [Client] methods when the Loops API responds with
+// a non-2xx status. Use [errors.As] to inspect the status code and message:
+//
+//	var apiErr *loops.APIError
+//	if errors.As(err, &apiErr) {
+//	    log.Printf("loops api error %d: %s", apiErr.StatusCode, apiErr.Message)
+//	}
 type APIError struct {
 	StatusCode int
 	Message    string
 }
 
+// Error returns the API error message.
 func (e *APIError) Error() string {
 	return e.Message
 }
 
+// Client is a Loops API client. Construct one with [NewClient]. A Client is
+// safe for concurrent use by multiple goroutines.
 type Client struct {
 	baseURL    string
 	apiKey     string
@@ -39,13 +71,28 @@ type Client struct {
 	userAgent  string
 }
 
+// Option configures a [Client]. Pass options to [NewClient].
 type Option func(*Client)
 
-func WithBaseURL(u string) Option           { return func(c *Client) { c.baseURL = u } }
-func WithUserAgent(ua string) Option        { return func(c *Client) { c.userAgent = ua } }
-func WithLogger(w io.Writer) Option         { return func(c *Client) { c.logger = w } }
-func WithHTTPClient(h *http.Client) Option  { return func(c *Client) { c.httpClient = h } }
+// WithBaseURL overrides the API base URL used by the [Client]. Most callers
+// do not need this; the default is [DefaultBaseURL].
+func WithBaseURL(u string) Option { return func(c *Client) { c.baseURL = u } }
 
+// WithUserAgent sets the User-Agent header sent on outgoing requests. The
+// default is "loops-go/" + [Version].
+func WithUserAgent(ua string) Option { return func(c *Client) { c.userAgent = ua } }
+
+// WithLogger enables verbose request and response logging to w. The
+// Authorization header is redacted. Intended for debugging only.
+func WithLogger(w io.Writer) Option { return func(c *Client) { c.logger = w } }
+
+// WithHTTPClient replaces the underlying [*http.Client] used to make
+// requests. Use this to configure custom timeouts, transports, or proxies.
+// The default client has a 5 second timeout.
+func WithHTTPClient(h *http.Client) Option { return func(c *Client) { c.httpClient = h } }
+
+// NewClient returns a new [Client] authenticated with the given API key.
+// Apply zero or more [Option] values to override defaults.
 func NewClient(apiKey string, opts ...Option) *Client {
 	c := &Client{
 		baseURL:    DefaultBaseURL,

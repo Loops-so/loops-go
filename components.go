@@ -7,12 +7,15 @@ import (
 	"net/url"
 )
 
+// Component is a reusable LMX snippet that can be included from other email
+// messages. It is identified by ComponentID and has an LMX body.
 type Component struct {
 	ComponentID string `json:"componentId"`
 	Name        string `json:"name"`
 	LMX         string `json:"lmx"`
 }
 
+// GetComponent returns the component identified by id.
 func (c *Client) GetComponent(id string) (*Component, error) {
 	req, err := c.newRequest(http.MethodGet, "/components/"+id, nil)
 	if err != nil {
@@ -37,6 +40,8 @@ func (c *Client) GetComponent(id string) (*Component, error) {
 	return &result, nil
 }
 
+// ListComponents returns a single page of components along with pagination
+// information. To iterate every page, use [Paginate].
 func (c *Client) ListComponents(params PaginationParams) ([]Component, *Pagination, error) {
 	q := url.Values{}
 	if params.PerPage != "" {

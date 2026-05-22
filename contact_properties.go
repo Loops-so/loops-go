@@ -7,12 +7,18 @@ import (
 	"net/http"
 )
 
+// ContactProperty describes a property defined on a contact: its API key,
+// human-readable label, and value type (e.g. "string", "number", "boolean",
+// "date").
 type ContactProperty struct {
 	Key   string `json:"key"`
 	Label string `json:"label"`
 	Type  string `json:"type"`
 }
 
+// ListContactProperties returns the contact properties defined on your
+// account. If customOnly is true, only custom properties are returned;
+// otherwise built-in properties are included as well.
 func (c *Client) ListContactProperties(customOnly bool) ([]ContactProperty, error) {
 	req, err := c.newRequest(http.MethodGet, "/contacts/properties", nil)
 	if err != nil {
@@ -43,6 +49,8 @@ func (c *Client) ListContactProperties(customOnly bool) ([]ContactProperty, erro
 	return result, nil
 }
 
+// CreateContactProperty creates a new custom contact property with the
+// given name and type (e.g. "string", "number", "boolean", "date").
 func (c *Client) CreateContactProperty(name, propType string) error {
 	b, err := json.Marshal(map[string]string{"name": name, "type": propType})
 	if err != nil {

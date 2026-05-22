@@ -7,6 +7,9 @@ import (
 	"net/url"
 )
 
+// ThemeStyles is the set of visual style values for a [Theme]. Colors are
+// CSS color strings (typically hex), and numeric fields are pixel values
+// unless otherwise implied by the field name.
 type ThemeStyles struct {
 	BackgroundColor       string  `json:"backgroundColor"`
 	BackgroundXPadding    float64 `json:"backgroundXPadding"`
@@ -49,6 +52,8 @@ type ThemeStyles struct {
 	Heading3LetterSpacing float64 `json:"heading3LetterSpacing"`
 }
 
+// Theme is a named collection of styles applied to email messages. Exactly
+// one theme on the account has IsDefault set to true.
 type Theme struct {
 	ThemeID   string      `json:"themeId"`
 	Name      string      `json:"name"`
@@ -58,6 +63,7 @@ type Theme struct {
 	UpdatedAt string      `json:"updatedAt"`
 }
 
+// GetTheme returns the theme identified by id.
 func (c *Client) GetTheme(id string) (*Theme, error) {
 	req, err := c.newRequest(http.MethodGet, "/themes/"+id, nil)
 	if err != nil {
@@ -82,6 +88,8 @@ func (c *Client) GetTheme(id string) (*Theme, error) {
 	return &result, nil
 }
 
+// ListThemes returns a single page of themes along with pagination
+// information. To iterate every page, use [Paginate].
 func (c *Client) ListThemes(params PaginationParams) ([]Theme, *Pagination, error) {
 	q := url.Values{}
 	if params.PerPage != "" {

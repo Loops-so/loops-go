@@ -7,6 +7,9 @@ import (
 	"net/http"
 )
 
+// EmailMessage is the persisted form of an email's content and metadata,
+// including its LMX body. Warnings is populated by the LMX linter when the
+// message is fetched or updated.
 type EmailMessage struct {
 	EmailMessageID    string       `json:"emailMessageId"`
 	CampaignID        *string      `json:"campaignId"`
@@ -21,12 +24,21 @@ type EmailMessage struct {
 	Warnings          []LmxWarning `json:"warnings,omitempty"`
 }
 
+// UpdateEmailMessageRequest is the request body for [Client.UpdateEmailMessage].
+//
+// Set selects which fields from the embedded [EmailMessageFields] are
+// applied — only fields whose key is true in Set are sent. This lets the
+// caller distinguish "leave alone" from "set to empty string".
+//
+// ExpectedRevisionID is optional; if set, the update fails if the message's
+// current ContentRevisionID does not match (optimistic concurrency control).
 type UpdateEmailMessageRequest struct {
 	EmailMessageFields
 	Set                map[string]bool
 	ExpectedRevisionID string
 }
 
+// GetEmailMessage returns the email message identified by id.
 func (c *Client) GetEmailMessage(id string) (*EmailMessage, error) {
 	req, err := c.newRequest(http.MethodGet, "/email-messages/"+id, nil)
 	if err != nil {
@@ -51,6 +63,9 @@ func (c *Client) GetEmailMessage(id string) (*EmailMessage, error) {
 	return &result, nil
 }
 
+// UpdateEmailMessage updates the email message identified by id with the
+// fields selected in req.Set and returns its new state. See
+// [UpdateEmailMessageRequest] for the selection semantics.
 func (c *Client) UpdateEmailMessage(id string, req UpdateEmailMessageRequest) (*EmailMessage, error) {
 	body := map[string]any{}
 	if req.Set["subject"] {

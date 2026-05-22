@@ -6,10 +6,14 @@ import (
 	"net/http"
 )
 
+// APIKeyResponse is returned by [Client.GetAPIKey] and identifies the team
+// the API key belongs to.
 type APIKeyResponse struct {
 	TeamName string `json:"teamName"`
 }
 
+// GetAPIKey verifies the client's API key and returns information about the
+// team it belongs to. Useful as a connectivity check at startup.
 func (c *Client) GetAPIKey() (*APIKeyResponse, error) {
 	req, err := c.newRequest(http.MethodGet, "/api-key", nil)
 	if err != nil {

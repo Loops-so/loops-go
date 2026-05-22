@@ -8,6 +8,8 @@ import (
 	"net/url"
 )
 
+// TransactionalEmail describes a transactional email template configured in
+// Loops, as returned by [Client.ListTransactional].
 type TransactionalEmail struct {
 	ID            string   `json:"id"`
 	Name          string   `json:"name"`
@@ -15,12 +17,22 @@ type TransactionalEmail struct {
 	DataVariables []string `json:"dataVariables"`
 }
 
+// Attachment is a file attached to a transactional email. Data must be the
+// file contents encoded as a base64 string.
 type Attachment struct {
 	Filename    string `json:"filename"`
 	ContentType string `json:"contentType"`
 	Data        string `json:"data"`
 }
 
+// SendTransactionalRequest is the request body for [Client.SendTransactional].
+//
+// TransactionalID identifies the template to send and Email is the
+// recipient. DataVariables populates the template's variables. If
+// AddToAudience is true, the recipient is also added to your audience.
+//
+// If IdempotencyKey is set, it is sent as the Idempotency-Key HTTP header so
+// the send can be safely retried without duplication.
 type SendTransactionalRequest struct {
 	Email           string         `json:"email"`
 	TransactionalID string         `json:"transactionalId"`
@@ -30,6 +42,8 @@ type SendTransactionalRequest struct {
 	IdempotencyKey  string         `json:"-"`
 }
 
+// SendTransactional sends a transactional email. See
+// [SendTransactionalRequest] for field semantics.
 func (c *Client) SendTransactional(req SendTransactionalRequest) error {
 	b, err := json.Marshal(req)
 	if err != nil {
@@ -57,6 +71,12 @@ func (c *Client) SendTransactional(req SendTransactionalRequest) error {
 	return nil
 }
 
+// ListTransactional returns a single page of transactional email templates
+// along with pagination information. To iterate every page, use [Paginate]:
+//
+//	all, err := loops.Paginate(func(cursor string) ([]loops.TransactionalEmail, *loops.Pagination, error) {
+//	    return client.ListTransactional(loops.PaginationParams{Cursor: cursor})
+//	})
 func (c *Client) ListTransactional(params PaginationParams) ([]TransactionalEmail, *Pagination, error) {
 	q := url.Values{}
 	if params.PerPage != "" {
