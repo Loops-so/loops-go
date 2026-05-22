@@ -14,8 +14,7 @@ import (
 const createUploadResponse = `{
 	"success": true,
 	"emailAssetId": "asset_abc123",
-	"presignedUrl": "https://storage.example.com/upload/abc?sig=xyz",
-	"expiresAt": "2026-05-21T10:15:00Z"
+	"presignedUrl": "https://storage.example.com/upload/abc?sig=xyz"
 }`
 
 func TestCreateUpload(t *testing.T) {
@@ -114,9 +113,6 @@ func TestCreateUpload(t *testing.T) {
 			if result.PresignedURL != "https://storage.example.com/upload/abc?sig=xyz" {
 				t.Errorf("PresignedURL = %q", result.PresignedURL)
 			}
-			if result.ExpiresAt != "2026-05-21T10:15:00Z" {
-				t.Errorf("ExpiresAt = %q, want 2026-05-21T10:15:00Z", result.ExpiresAt)
-			}
 		})
 	}
 }
@@ -171,8 +167,7 @@ func TestUpload(t *testing.T) {
 		body := `{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123?sig=xyz",
-			"expiresAt": "2026-05-21T10:15:00Z"
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123?sig=xyz"
 		}`
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
@@ -290,8 +285,7 @@ func TestUpload_PutFails(t *testing.T) {
 		body := `{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123",
-			"expiresAt": "2026-05-21T10:15:00Z"
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123"
 		}`
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
@@ -333,8 +327,7 @@ func TestUpload_CompleteFails(t *testing.T) {
 		body := `{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123",
-			"expiresAt": "2026-05-21T10:15:00Z"
+			"presignedUrl": "` + server.URL + `/storage/asset_abc123"
 		}`
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))

@@ -17,7 +17,6 @@ type CreateUploadRequest struct {
 type CreateUploadResponse struct {
 	EmailAssetID string `json:"emailAssetId"`
 	PresignedURL string `json:"presignedUrl"`
-	ExpiresAt    string `json:"expiresAt"`
 }
 
 type CompleteUploadResponse struct {
