@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,11 +12,21 @@ import (
 	"testing"
 )
 
-const createUploadResponse = `{
+const fakePresignedQuery = "X-Amz-Algorithm=AWS4-HMAC-SHA256" +
+	"&X-Amz-Credential=dummy" +
+	"&X-Amz-Date=dummy" +
+	"&X-Amz-Expires=900" +
+	"&X-Amz-SignedHeaders=host" +
+	"&X-Amz-Security-Token=dummy" +
+	"&X-Amz-Signature=dummy"
+
+const fakePresignedURL = "https://example.s3.us-east-1.amazonaws.com/em_abc123/asset_abc123.png?" + fakePresignedQuery
+
+var createUploadResponse = fmt.Sprintf(`{
 	"success": true,
 	"emailAssetId": "asset_abc123",
-	"presignedUrl": "https://storage.example.com/upload/abc?sig=xyz"
-}`
+	"presignedUrl": %q
+}`, fakePresignedURL)
 
 func TestCreateUpload(t *testing.T) {
 	tests := []struct {
@@ -110,7 +121,7 @@ func TestCreateUpload(t *testing.T) {
 			if result.EmailAssetID != "asset_abc123" {
 				t.Errorf("EmailAssetID = %q, want asset_abc123", result.EmailAssetID)
 			}
-			if result.PresignedURL != "https://storage.example.com/upload/abc?sig=xyz" {
+			if result.PresignedURL != fakePresignedURL {
 				t.Errorf("PresignedURL = %q", result.PresignedURL)
 			}
 		})
@@ -164,15 +175,15 @@ func TestUpload(t *testing.T) {
 	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
 		createCalls++
 		gotCreatePath = r.URL.Path
-		body := `{
+		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123?sig=xyz"
-		}`
+			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
 		putCalls++
 		gotPutPath = r.URL.Path
 		gotPutMethod = r.Method
@@ -210,8 +221,8 @@ func TestUpload(t *testing.T) {
 	if gotPutMethod != http.MethodPut {
 		t.Errorf("put method = %q, want PUT", gotPutMethod)
 	}
-	if gotPutPath != "/storage/asset_abc123" {
-		t.Errorf("put path = %q, want /storage/asset_abc123", gotPutPath)
+	if gotPutPath != "/em_abc123/asset_abc123.png" {
+		t.Errorf("put path = %q, want /em_abc123/asset_abc123.png", gotPutPath)
 	}
 	if gotPutContentType != "image/png" {
 		t.Errorf("put content-type = %q, want image/png", gotPutContentType)
@@ -247,7 +258,7 @@ func TestUpload_CreateFails(t *testing.T) {
 		}
 		completeCalls++
 	})
-	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
 		putCalls++
 		w.WriteHeader(http.StatusOK)
 	})
@@ -282,15 +293,15 @@ func TestUpload_PutFails(t *testing.T) {
 	defer server.Close()
 
 	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
-		body := `{
+		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123"
-		}`
+			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`<Error><Code>AccessDenied</Code></Error>`))
 	})
@@ -324,15 +335,15 @@ func TestUpload_CompleteFails(t *testing.T) {
 	defer server.Close()
 
 	mux.HandleFunc("/uploads", func(w http.ResponseWriter, r *http.Request) {
-		body := `{
+		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "` + server.URL + `/storage/asset_abc123"
-		}`
+			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/storage/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/uploads/asset_abc123/complete", func(w http.ResponseWriter, r *http.Request) {
