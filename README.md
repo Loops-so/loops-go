@@ -60,6 +60,7 @@ client := loops.NewClient("YOUR_API_KEY",
 - Campaigns — `CreateCampaign`, `UpdateCampaign`, `GetCampaign`, `ListCampaigns`
 - Components — `GetComponent`, `ListComponents`
 - Themes — `GetTheme`, `ListThemes`
+- Uploads — `Upload`, `CreateUpload`, `CompleteUpload`
 
 Full reference: [pkg.go.dev/github.com/loops-so/loops-go](https://pkg.go.dev/github.com/loops-so/loops-go).
 
@@ -104,6 +105,35 @@ all, err := loops.Paginate(func(cursor string) ([]loops.TransactionalEmail, *loo
     return client.ListTransactional(loops.PaginationParams{Cursor: cursor})
 })
 ```
+
+## Uploads
+
+`Upload` is a one-call helper that requests a presigned URL, uploads the bytes, and finalizes the asset. Supported content types are `image/jpeg`, `image/png`, `image/gif` and `image/webp`, up to 4 MB.
+
+```go
+f, err := os.Open("hero.png")
+if err != nil {
+    log.Fatal(err)
+}
+defer f.Close()
+stat, err := f.Stat()
+if err != nil {
+    log.Fatal(err)
+}
+
+asset, err := client.Upload(loops.UploadRequest{
+    EmailMessageID: "em_abc123",
+    ContentType:    "image/png",
+    ContentLength:  stat.Size(),
+    Body:           f,
+})
+if err != nil {
+    log.Fatal(err)
+}
+// asset.FinalURL is the public URL to reference in your email LMX.
+```
+
+For finer control, call `CreateUpload` and `CompleteUpload` directly and do the `PUT` to the presigned URL yourself.
 
 ## License
 
