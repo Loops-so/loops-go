@@ -1,5 +1,7 @@
 package loops
 
+// Pagination describes the position of a single page within a paginated
+// result set. NextCursor is empty when the current page is the last one.
 type Pagination struct {
 	TotalResults    int    `json:"totalResults"`
 	ReturnedResults int    `json:"returnedResults"`
@@ -9,11 +11,21 @@ type Pagination struct {
 	NextPage        string `json:"nextPage"`
 }
 
+// PaginationParams controls a single page request. Both fields are optional;
+// leave Cursor empty to request the first page.
 type PaginationParams struct {
 	PerPage string
 	Cursor  string
 }
 
+// Paginate fetches every page from a paginated list endpoint by repeatedly
+// calling fetch with the previous page's NextCursor, and returns all items
+// concatenated together. Use it with list methods like
+// [Client.ListTransactional] and [Client.ListCampaigns]:
+//
+//	all, err := loops.Paginate(func(cursor string) ([]loops.TransactionalEmail, *loops.Pagination, error) {
+//	    return client.ListTransactional(loops.PaginationParams{Cursor: cursor})
+//	})
 func Paginate[T any](fetch func(cursor string) ([]T, *Pagination, error)) ([]T, error) {
 	var all []T
 	cursor := ""

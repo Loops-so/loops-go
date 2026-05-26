@@ -7,16 +7,27 @@ import (
 	"net/http"
 )
 
+// SendEventRequest is the request body for [Client.SendEvent].
+//
+// One of Email or UserID must be set to identify the contact. EventName is
+// required. EventProperties are sent alongside the event; ContactProperties
+// are merged onto the contact at the same time.
+//
+// If IdempotencyKey is set, it is sent as the Idempotency-Key HTTP header so
+// the event can be safely retried without duplication.
 type SendEventRequest struct {
-	Email             string         `json:"-"`
-	UserID            string         `json:"-"`
-	EventName         string         `json:"-"`
-	EventProperties   map[string]any `json:"-"`
+	Email             string          `json:"-"`
+	UserID            string          `json:"-"`
+	EventName         string          `json:"-"`
+	EventProperties   map[string]any  `json:"-"`
 	MailingLists      map[string]bool `json:"-"`
-	ContactProperties map[string]any `json:"-"`
-	IdempotencyKey    string         `json:"-"`
+	ContactProperties map[string]any  `json:"-"`
+	IdempotencyKey    string          `json:"-"`
 }
 
+// SendEvent sends an event to Loops, optionally updating contact properties
+// and mailing-list memberships at the same time. See [SendEventRequest] for
+// field semantics.
 func (c *Client) SendEvent(req SendEventRequest) error {
 	body := make(map[string]any)
 	for k, v := range req.ContactProperties {

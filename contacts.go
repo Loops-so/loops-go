@@ -7,6 +7,12 @@ import (
 	"net/http"
 )
 
+// Contact represents a contact in Loops, as returned by [Client.FindContacts].
+//
+// Custom collects any fields returned by the API that are not part of the
+// fixed schema (for example, custom contact properties defined on your
+// account). They are populated by UnmarshalJSON and re-emitted by
+// MarshalJSON.
 type Contact struct {
 	ID           string          `json:"id"`
 	Email        string          `json:"email"`
@@ -27,6 +33,8 @@ var knownContactFields = map[string]bool{
 	"mailingLists": true, "optInStatus": true,
 }
 
+// UnmarshalJSON implements [json.Unmarshaler] and collects unknown fields
+// into [Contact.Custom].
 func (c *Contact) UnmarshalJSON(data []byte) error {
 	type Alias Contact
 	if err := json.Unmarshal(data, (*Alias)(c)); err != nil {
@@ -53,6 +61,8 @@ func (c *Contact) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON implements [json.Marshaler] and merges [Contact.Custom] into
+// the top-level JSON object.
 func (c Contact) MarshalJSON() ([]byte, error) {
 	type Alias Contact
 	b, err := json.Marshal(Alias(c))
@@ -76,6 +86,11 @@ func (c Contact) MarshalJSON() ([]byte, error) {
 	return json.Marshal(m)
 }
 
+// CreateContactRequest is the request body for [Client.CreateContact].
+//
+// Email is required. Subscribed is a pointer so the zero value (unset) is
+// distinguishable from an explicit false. ContactProperties carries any
+// custom properties defined on your Loops account.
 type CreateContactRequest struct {
 	Email             string
 	FirstName         string
@@ -117,6 +132,7 @@ func buildContactBody(
 	return body
 }
 
+// CreateContact creates a new contact and returns the new contact's ID.
 func (c *Client) CreateContact(req CreateContactRequest) (string, error) {
 	body := buildContactBody(req.ContactProperties, req.FirstName, req.LastName, req.Subscribed, req.UserGroup, req.MailingLists)
 	body["email"] = req.Email
@@ -158,6 +174,10 @@ func (c *Client) CreateContact(req CreateContactRequest) (string, error) {
 	return result.ID, nil
 }
 
+// UpdateContactRequest is the request body for [Client.UpdateContact]. The
+// contact is identified by Email or UserID; one must be set. Fields left at
+// their zero value are not modified, except Subscribed which uses a pointer
+// so an explicit false can be sent.
 type UpdateContactRequest struct {
 	Email             string
 	UserID            string
@@ -169,6 +189,7 @@ type UpdateContactRequest struct {
 	ContactProperties map[string]any
 }
 
+// UpdateContact updates an existing contact, identified by email or user ID.
 func (c *Client) UpdateContact(req UpdateContactRequest) error {
 	body := buildContactBody(req.ContactProperties, req.FirstName, req.LastName, req.Subscribed, req.UserGroup, req.MailingLists)
 	if req.Email != "" {
@@ -201,6 +222,8 @@ func (c *Client) UpdateContact(req UpdateContactRequest) error {
 	return nil
 }
 
+// DeleteContact deletes a contact identified by email or user ID. One of the
+// two must be non-empty.
 func (c *Client) DeleteContact(email, userID string) error {
 	body := make(map[string]any)
 	if email != "" {
@@ -233,6 +256,9 @@ func (c *Client) DeleteContact(email, userID string) error {
 	return nil
 }
 
+// ContactSuppression is returned by [Client.CheckContactSuppression] and
+// reports whether a contact is currently suppressed (e.g. bounced or
+// complained) along with your remaining suppression-removal quota.
 type ContactSuppression struct {
 	Contact struct {
 		ID     string  `json:"id"`
@@ -246,6 +272,8 @@ type ContactSuppression struct {
 	} `json:"removalQuota"`
 }
 
+// ContactSuppressionRemoval is returned by [Client.RemoveContactSuppression]
+// and reports the result of the removal along with your remaining quota.
 type ContactSuppressionRemoval struct {
 	Success      bool   `json:"success"`
 	Message      string `json:"message"`
@@ -255,6 +283,8 @@ type ContactSuppressionRemoval struct {
 	} `json:"removalQuota"`
 }
 
+// CheckContactSuppression reports whether the contact identified by email or
+// user ID is currently suppressed.
 func (c *Client) CheckContactSuppression(email, userID string) (*ContactSuppression, error) {
 	req, err := c.newRequest(http.MethodGet, "/contacts/suppression", nil)
 	if err != nil {
@@ -288,6 +318,9 @@ func (c *Client) CheckContactSuppression(email, userID string) (*ContactSuppress
 	return &result, nil
 }
 
+// RemoveContactSuppression removes a contact from the suppression list,
+// allowing future sends to them. Removals count against a monthly quota
+// reported in the response.
 func (c *Client) RemoveContactSuppression(email, userID string) (*ContactSuppressionRemoval, error) {
 	req, err := c.newRequest(http.MethodDelete, "/contacts/suppression", nil)
 	if err != nil {
@@ -321,11 +354,16 @@ func (c *Client) RemoveContactSuppression(email, userID string) (*ContactSuppres
 	return &result, nil
 }
 
+// FindContactParams is the query for [Client.FindContacts]. One of Email or
+// UserID must be set.
 type FindContactParams struct {
 	Email  string
 	UserID string
 }
 
+// FindContacts looks up contacts by email or user ID. The result is a slice
+// because the underlying endpoint may return multiple matches; in typical
+// use it contains zero or one entry.
 func (c *Client) FindContacts(params FindContactParams) ([]Contact, error) {
 	req, err := c.newRequest(http.MethodGet, "/contacts/find", nil)
 	if err != nil {

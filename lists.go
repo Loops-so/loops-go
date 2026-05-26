@@ -6,6 +6,8 @@ import (
 	"net/http"
 )
 
+// MailingList describes a mailing list defined on your Loops account. Use
+// its ID as the key in the mailingLists map on contact and event requests.
 type MailingList struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
@@ -13,6 +15,7 @@ type MailingList struct {
 	IsPublic    bool   `json:"isPublic"`
 }
 
+// ListMailingLists returns every mailing list defined on your account.
 func (c *Client) ListMailingLists() ([]MailingList, error) {
 	req, err := c.newRequest(http.MethodGet, "/lists", nil)
 	if err != nil {
