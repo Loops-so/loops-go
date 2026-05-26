@@ -20,7 +20,7 @@ const fakePresignedQuery = "X-Amz-Algorithm=AWS4-HMAC-SHA256" +
 	"&X-Amz-Security-Token=dummy" +
 	"&X-Amz-Signature=dummy"
 
-const fakePresignedURL = "https://example.s3.us-east-1.amazonaws.com/em_abc123/asset_abc123.png?" + fakePresignedQuery
+const fakePresignedURL = "https://example.s3.us-east-1.amazonaws.com/team_abc123/asset_abc123.png?" + fakePresignedQuery
 
 var createUploadResponse = fmt.Sprintf(`{
 	"success": true,
@@ -54,12 +54,6 @@ func TestCreateUpload(t *testing.T) {
 			wantAPIErr: &APIError{StatusCode: http.StatusRequestEntityTooLarge, Message: "File too large"},
 		},
 		{
-			name:       "email message not found",
-			statusCode: http.StatusNotFound,
-			body:       `{"success":false,"message":"Email message not found"}`,
-			wantAPIErr: &APIError{StatusCode: http.StatusNotFound, Message: "Email message not found"},
-		},
-		{
 			name:       "invalid json",
 			statusCode: http.StatusOK,
 			body:       `not json`,
@@ -80,9 +74,8 @@ func TestCreateUpload(t *testing.T) {
 
 			client := NewClient("test-key", WithBaseURL(server.URL))
 			result, err := client.CreateUpload(CreateUploadRequest{
-				EmailMessageID: "em_abc123",
-				ContentType:    "image/png",
-				ContentLength:  1024,
+				ContentType:   "image/png",
+				ContentLength: 1024,
 			})
 
 			if tt.wantAPIErr != nil {
@@ -140,16 +133,15 @@ func TestCreateUpload_RequestBody(t *testing.T) {
 
 	client := NewClient("test-key", WithBaseURL(server.URL))
 	_, err := client.CreateUpload(CreateUploadRequest{
-		EmailMessageID: "em_abc123",
-		ContentType:    "image/png",
-		ContentLength:  2048,
+		ContentType:   "image/png",
+		ContentLength: 2048,
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if body["emailMessageId"] != "em_abc123" {
-		t.Errorf("emailMessageId = %v, want em_abc123", body["emailMessageId"])
+	if _, ok := body["emailMessageId"]; ok {
+		t.Errorf("emailMessageId should not be in request body, got %v", body["emailMessageId"])
 	}
 	if body["contentType"] != "image/png" {
 		t.Errorf("contentType = %v, want image/png", body["contentType"])
@@ -178,12 +170,12 @@ func TestUpload(t *testing.T) {
 		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+			"presignedUrl": "%s/asset_abc123.png?%s"
 		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/asset_abc123.png", func(w http.ResponseWriter, r *http.Request) {
 		putCalls++
 		gotPutPath = r.URL.Path
 		gotPutMethod = r.Method
@@ -203,10 +195,9 @@ func TestUpload(t *testing.T) {
 	client := NewClient("test-key", WithBaseURL(server.URL))
 	imageBytes := []byte("\x89PNG\r\n\x1a\nfake-image-bytes")
 	result, err := client.Upload(UploadRequest{
-		EmailMessageID: "em_abc123",
-		ContentType:    "image/png",
-		ContentLength:  int64(len(imageBytes)),
-		Body:           bytes.NewReader(imageBytes),
+		ContentType:   "image/png",
+		ContentLength: int64(len(imageBytes)),
+		Body:          bytes.NewReader(imageBytes),
 	})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -221,8 +212,8 @@ func TestUpload(t *testing.T) {
 	if gotPutMethod != http.MethodPut {
 		t.Errorf("put method = %q, want PUT", gotPutMethod)
 	}
-	if gotPutPath != "/em_abc123/asset_abc123.png" {
-		t.Errorf("put path = %q, want /em_abc123/asset_abc123.png", gotPutPath)
+	if gotPutPath != "/asset_abc123.png" {
+		t.Errorf("put path = %q, want /asset_abc123.png", gotPutPath)
 	}
 	if gotPutContentType != "image/png" {
 		t.Errorf("put content-type = %q, want image/png", gotPutContentType)
@@ -258,17 +249,16 @@ func TestUpload_CreateFails(t *testing.T) {
 		}
 		completeCalls++
 	})
-	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/asset_abc123.png", func(w http.ResponseWriter, r *http.Request) {
 		putCalls++
 		w.WriteHeader(http.StatusOK)
 	})
 
 	client := NewClient("test-key", WithBaseURL(server.URL))
 	_, err := client.Upload(UploadRequest{
-		EmailMessageID: "em_abc123",
-		ContentType:    "image/bmp",
-		ContentLength:  4,
-		Body:           bytes.NewReader([]byte("body")),
+		ContentType:   "image/bmp",
+		ContentLength: 4,
+		Body:          bytes.NewReader([]byte("body")),
 	})
 
 	var apiErr *APIError
@@ -296,12 +286,12 @@ func TestUpload_PutFails(t *testing.T) {
 		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+			"presignedUrl": "%s/asset_abc123.png?%s"
 		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/asset_abc123.png", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
 		w.Write([]byte(`<Error><Code>AccessDenied</Code></Error>`))
 	})
@@ -312,10 +302,9 @@ func TestUpload_PutFails(t *testing.T) {
 
 	client := NewClient("test-key", WithBaseURL(server.URL))
 	_, err := client.Upload(UploadRequest{
-		EmailMessageID: "em_abc123",
-		ContentType:    "image/png",
-		ContentLength:  4,
-		Body:           bytes.NewReader([]byte("body")),
+		ContentType:   "image/png",
+		ContentLength: 4,
+		Body:          bytes.NewReader([]byte("body")),
 	})
 
 	if err == nil {
@@ -338,12 +327,12 @@ func TestUpload_CompleteFails(t *testing.T) {
 		body := fmt.Sprintf(`{
 			"success": true,
 			"emailAssetId": "asset_abc123",
-			"presignedUrl": "%s/em_abc123/asset_abc123.png?%s"
+			"presignedUrl": "%s/asset_abc123.png?%s"
 		}`, server.URL, fakePresignedQuery)
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(body))
 	})
-	mux.HandleFunc("/em_abc123/", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/asset_abc123.png", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	})
 	mux.HandleFunc("/uploads/asset_abc123/complete", func(w http.ResponseWriter, r *http.Request) {
@@ -353,10 +342,9 @@ func TestUpload_CompleteFails(t *testing.T) {
 
 	client := NewClient("test-key", WithBaseURL(server.URL))
 	_, err := client.Upload(UploadRequest{
-		EmailMessageID: "em_abc123",
-		ContentType:    "image/png",
-		ContentLength:  4,
-		Body:           bytes.NewReader([]byte("body")),
+		ContentType:   "image/png",
+		ContentLength: 4,
+		Body:          bytes.NewReader([]byte("body")),
 	})
 
 	var apiErr *APIError

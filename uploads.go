@@ -9,9 +9,8 @@ import (
 )
 
 type CreateUploadRequest struct {
-	EmailMessageID string `json:"emailMessageId"`
-	ContentType    string `json:"contentType"`
-	ContentLength  int64  `json:"contentLength"`
+	ContentType   string `json:"contentType"`
+	ContentLength int64  `json:"contentLength"`
 }
 
 type CreateUploadResponse struct {
@@ -25,10 +24,9 @@ type CompleteUploadResponse struct {
 }
 
 type UploadRequest struct {
-	EmailMessageID string
-	ContentType    string
-	ContentLength  int64
-	Body           io.Reader
+	ContentType   string
+	ContentLength int64
+	Body          io.Reader
 }
 
 func (c *Client) CreateUpload(req CreateUploadRequest) (*CreateUploadResponse, error) {
@@ -62,9 +60,8 @@ func (c *Client) CreateUpload(req CreateUploadRequest) (*CreateUploadResponse, e
 
 func (c *Client) Upload(req UploadRequest) (*CompleteUploadResponse, error) {
 	created, err := c.CreateUpload(CreateUploadRequest{
-		EmailMessageID: req.EmailMessageID,
-		ContentType:    req.ContentType,
-		ContentLength:  req.ContentLength,
+		ContentType:   req.ContentType,
+		ContentLength: req.ContentLength,
 	})
 	if err != nil {
 		return nil, err
