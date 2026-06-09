@@ -55,7 +55,7 @@ client := loops.NewClient("YOUR_API_KEY",
 - Contact properties — `ListContactProperties`, `CreateContactProperty`
 - Mailing lists — `ListMailingLists`
 - Events — `SendEvent`
-- Transactional — `SendTransactional`, `ListTransactional`
+- Transactional — `SendTransactional`, `ListTransactionals`, `CreateTransactional`, `GetTransactional`, `UpdateTransactional`, `EnsureTransactionalDraft`, `PublishTransactional`
 - Email messages — `GetEmailMessage`, `UpdateEmailMessage`
 - Campaigns — `CreateCampaign`, `UpdateCampaign`, `GetCampaign`, `ListCampaigns`
 - Components — `GetComponent`, `ListComponents`
@@ -88,10 +88,10 @@ Requests are automatically retried with exponential backoff and jitter on `429` 
 
 ## Pagination
 
-`ListTransactional` and `ListCampaigns` return a single page of results along with a `*Pagination` value. Pass a `PaginationParams` to control page size and cursor:
+`ListTransactionals` and `ListCampaigns` return a single page of results along with a `*Pagination` value. Pass a `PaginationParams` to control page size and cursor:
 
 ```go
-items, page, err := client.ListTransactional(loops.PaginationParams{PerPage: "50"})
+items, page, err := client.ListTransactionals(loops.PaginationParams{PerPage: "50"})
 if err != nil {
     log.Fatal(err)
 }
@@ -101,8 +101,8 @@ if err != nil {
 To fetch every page, use the generic `Paginate` helper:
 
 ```go
-all, err := loops.Paginate(func(cursor string) ([]loops.TransactionalEmail, *loops.Pagination, error) {
-    return client.ListTransactional(loops.PaginationParams{Cursor: cursor})
+all, err := loops.Paginate(func(cursor string) ([]loops.Transactional, *loops.Pagination, error) {
+    return client.ListTransactionals(loops.PaginationParams{Cursor: cursor})
 })
 ```
 
