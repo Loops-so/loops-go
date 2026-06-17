@@ -13,7 +13,7 @@ import (
 func TestGetEmailMessage(t *testing.T) {
 	body := `{
 		"success": true,
-		"emailMessageId": "em_abc123",
+		"id": "em_abc123",
 		"campaignId": "cmp_xyz789",
 		"subject": "Hello",
 		"previewText": "Preview",
@@ -107,8 +107,8 @@ func TestGetEmailMessage(t *testing.T) {
 			if want := "/email-messages/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
 			}
-			if result.EmailMessageID != tt.wantID {
-				t.Errorf("EmailMessageID = %q, want %q", result.EmailMessageID, tt.wantID)
+			if result.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
 			}
 			if result.CampaignID == nil || *result.CampaignID != "cmp_xyz789" {
 				t.Errorf("CampaignID = %v, want cmp_xyz789", result.CampaignID)
@@ -128,7 +128,7 @@ func TestGetEmailMessage(t *testing.T) {
 
 const updateEmailMessageResponse = `{
 	"success": true,
-	"emailMessageId": "em_abc123",
+	"id": "em_abc123",
 	"campaignId": "cmp_xyz789",
 	"subject": "Updated",
 	"previewText": "new preview",
@@ -216,8 +216,8 @@ func TestUpdateEmailMessage(t *testing.T) {
 			if want := "/email-messages/em_abc123"; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
 			}
-			if result.EmailMessageID != "em_abc123" {
-				t.Errorf("EmailMessageID = %q, want em_abc123", result.EmailMessageID)
+			if result.ID != "em_abc123" {
+				t.Errorf("ID = %q, want em_abc123", result.ID)
 			}
 			if result.ContentRevisionID == nil || *result.ContentRevisionID != "rev_2" {
 				t.Errorf("ContentRevisionID = %v, want rev_2", result.ContentRevisionID)
@@ -317,7 +317,7 @@ func TestUpdateEmailMessage_RequestBody(t *testing.T) {
 
 func TestGetEmailMessage_NewFields(t *testing.T) {
 	body := `{
-		"emailMessageId": "em_abc123",
+		"id": "em_abc123",
 		"transactionalId": "tx_xyz789",
 		"subject": "Hello",
 		"previewText": "",

@@ -20,7 +20,7 @@ const EmailFormatPlain = "plain"
 // CampaignID and TransactionalID are mutually exclusive — exactly one is
 // non-nil and identifies the parent.
 type EmailMessage struct {
-	EmailMessageID             string            `json:"emailMessageId"`
+	ID                         string            `json:"id"`
 	CampaignID                 *string           `json:"campaignId,omitempty"`
 	TransactionalID            *string           `json:"transactionalId,omitempty"`
 	Subject                    string            `json:"subject"`

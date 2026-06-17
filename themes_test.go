@@ -10,7 +10,7 @@ import (
 
 const getThemeResponse = `{
 	"success": true,
-	"themeId": "thm_abc123",
+	"id": "thm_abc123",
 	"name": "Brand",
 	"styles": {
 		"backgroundColor": "#ffffff",
@@ -40,7 +40,7 @@ const listThemesResponse = `{
 	},
 	"data": [
 		{
-			"themeId": "thm_1",
+			"id": "thm_1",
 			"name": "Brand",
 			"styles": {
 				"backgroundColor": "#ffffff",
@@ -51,7 +51,7 @@ const listThemesResponse = `{
 			"updatedAt": "2026-04-02T10:00:00Z"
 		},
 		{
-			"themeId": "thm_2",
+			"id": "thm_2",
 			"name": "Dark",
 			"styles": {
 				"backgroundColor": "#000000",
@@ -147,8 +147,8 @@ func TestGetTheme(t *testing.T) {
 			if want := "/themes/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
 			}
-			if result.ThemeID != tt.wantID {
-				t.Errorf("ThemeID = %q, want %q", result.ThemeID, tt.wantID)
+			if result.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
 			}
 			if result.Name != "Brand" {
 				t.Errorf("Name = %q, want Brand", result.Name)
@@ -271,8 +271,8 @@ func TestListThemes_ResponseData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if themes[0].ThemeID != "thm_1" {
-		t.Errorf("ThemeID = %q, want thm_1", themes[0].ThemeID)
+	if themes[0].ID != "thm_1" {
+		t.Errorf("ID = %q, want thm_1", themes[0].ID)
 	}
 	if !themes[0].IsDefault {
 		t.Errorf("themes[0].IsDefault = false, want true")

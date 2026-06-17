@@ -36,7 +36,7 @@ type CampaignSchedulingRequest struct {
 // [Client.UpdateCampaign], and [Client.ListCampaigns]. A campaign holds a
 // single [EmailMessage] linked via EmailMessageID.
 type Campaign struct {
-	CampaignID        string             `json:"campaignId"`
+	ID                string             `json:"id"`
 	EmailMessageID    *string            `json:"emailMessageId"`
 	Name              string             `json:"name"`
 	Status            string             `json:"status"`

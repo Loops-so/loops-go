@@ -22,7 +22,7 @@ const listCampaignsResponse = `{
 	},
 	"data": [
 		{
-			"campaignId": "cmp_1",
+			"id": "cmp_1",
 			"emailMessageId": "em_1",
 			"name": "Spring Launch",
 			"subject": "New arrivals",
@@ -31,7 +31,7 @@ const listCampaignsResponse = `{
 			"updatedAt": "2026-04-02T10:00:00Z"
 		},
 		{
-			"campaignId": "cmp_2",
+			"id": "cmp_2",
 			"emailMessageId": null,
 			"name": "Summer Sale",
 			"subject": "50% off",
@@ -44,7 +44,7 @@ const listCampaignsResponse = `{
 
 const createCampaignResponse = `{
 	"success": true,
-	"campaignId": "cmp_new",
+	"id": "cmp_new",
 	"name": "Spring Launch",
 	"status": "Draft",
 	"createdAt": "2026-04-20T10:00:00Z",
@@ -118,8 +118,8 @@ func TestCreateCampaign(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if resp.CampaignID != "cmp_new" {
-				t.Errorf("CampaignID = %q, want cmp_new", resp.CampaignID)
+			if resp.ID != "cmp_new" {
+				t.Errorf("ID = %q, want cmp_new", resp.ID)
 			}
 			if resp.EmailMessageID == nil || *resp.EmailMessageID != "em_new" {
 				t.Errorf("EmailMessageID = %v, want em_new", resp.EmailMessageID)
@@ -156,7 +156,7 @@ func TestCreateCampaign_RequestBody(t *testing.T) {
 
 const updateCampaignResponse = `{
 	"success": true,
-	"campaignId": "cmp_abc123",
+	"id": "cmp_abc123",
 	"emailMessageId": "em_abc123",
 	"name": "Renamed",
 	"status": "Draft",
@@ -238,8 +238,8 @@ func TestUpdateCampaign(t *testing.T) {
 			if err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			if result.CampaignID != "cmp_abc123" {
-				t.Errorf("CampaignID = %q, want cmp_abc123", result.CampaignID)
+			if result.ID != "cmp_abc123" {
+				t.Errorf("ID = %q, want cmp_abc123", result.ID)
 			}
 			if result.Name != "Renamed" {
 				t.Errorf("Name = %q, want Renamed", result.Name)
@@ -287,7 +287,7 @@ func TestUpdateCampaign_RequestBodyAndPath(t *testing.T) {
 func TestGetCampaign(t *testing.T) {
 	body := `{
 		"success": true,
-		"campaignId": "cmp_abc123",
+		"id": "cmp_abc123",
 		"emailMessageId": "em_abc123",
 		"name": "Spring Launch",
 		"status": "Draft",
@@ -377,8 +377,8 @@ func TestGetCampaign(t *testing.T) {
 			if want := "/campaigns/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
 			}
-			if result.CampaignID != tt.wantID {
-				t.Errorf("CampaignID = %q, want %q", result.CampaignID, tt.wantID)
+			if result.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
 			}
 			if result.EmailMessageID == nil || *result.EmailMessageID != "em_abc123" {
 				t.Errorf("EmailMessageID = %v, want em_abc123", result.EmailMessageID)
@@ -489,8 +489,8 @@ func TestListCampaigns_ResponseData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if campaigns[0].CampaignID != "cmp_1" {
-		t.Errorf("CampaignID = %q, want cmp_1", campaigns[0].CampaignID)
+	if campaigns[0].ID != "cmp_1" {
+		t.Errorf("ID = %q, want cmp_1", campaigns[0].ID)
 	}
 	if campaigns[0].EmailMessageID == nil || *campaigns[0].EmailMessageID != "em_1" {
 		t.Errorf("EmailMessageID = %v, want em_1", campaigns[0].EmailMessageID)
@@ -548,7 +548,7 @@ func TestListCampaigns_QueryParams(t *testing.T) {
 
 func TestGetCampaign_WithGroupAndScheduling(t *testing.T) {
 	body := `{
-		"campaignId": "cmp_abc123",
+		"id": "cmp_abc123",
 		"emailMessageId": "em_abc123",
 		"name": "Spring Launch",
 		"status": "Draft",
