@@ -206,7 +206,10 @@ func TestUpdateCampaign(t *testing.T) {
 			defer server.Close()
 
 			client := NewClient("test-key", WithBaseURL(server.URL))
-			result, err := client.UpdateCampaign("cmp_abc123", UpdateCampaignRequest{Name: "Renamed"})
+			result, err := client.UpdateCampaign("cmp_abc123", UpdateCampaignRequest{
+				Name: "Renamed",
+				Set:  map[string]bool{"name": true},
+			})
 
 			if tt.wantAPIErr != nil {
 				var apiErr *APIError
@@ -262,7 +265,11 @@ func TestUpdateCampaign_RequestBodyAndPath(t *testing.T) {
 	defer server.Close()
 
 	client := NewClient("test-key", WithBaseURL(server.URL))
-	if _, err := client.UpdateCampaign("cmp_abc123", UpdateCampaignRequest{Name: "Renamed"}); err != nil {
+	req := UpdateCampaignRequest{
+		Name: "Renamed",
+		Set:  map[string]bool{"name": true},
+	}
+	if _, err := client.UpdateCampaign("cmp_abc123", req); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
@@ -536,5 +543,130 @@ func TestListCampaigns_QueryParams(t *testing.T) {
 				t.Errorf("cursor = %q, want %q", gotCursor, tt.wantCursor)
 			}
 		})
+	}
+}
+
+func TestGetCampaign_WithGroupAndScheduling(t *testing.T) {
+	body := `{
+		"campaignId": "cmp_abc123",
+		"emailMessageId": "em_abc123",
+		"name": "Spring Launch",
+		"status": "Draft",
+		"createdAt": "2026-04-01T10:00:00Z",
+		"updatedAt": "2026-04-02T10:00:00Z",
+		"campaignGroupId": "grp_news",
+		"mailingListId": null,
+		"audienceSegmentId": "seg_pro",
+		"audienceFilter": null,
+		"scheduling": { "method": "schedule", "timestamp": "2026-06-01T09:00:00Z" }
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	result, err := client.GetCampaign("cmp_abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.CampaignGroupID == nil || *result.CampaignGroupID != "grp_news" {
+		t.Errorf("CampaignGroupID = %v, want grp_news", result.CampaignGroupID)
+	}
+	if result.MailingListID != nil {
+		t.Errorf("MailingListID = %v, want nil", result.MailingListID)
+	}
+	if result.AudienceSegmentID == nil || *result.AudienceSegmentID != "seg_pro" {
+		t.Errorf("AudienceSegmentID = %v, want seg_pro", result.AudienceSegmentID)
+	}
+	if result.Scheduling.Method != CampaignSchedulingMethodSchedule {
+		t.Errorf("Scheduling.Method = %q, want schedule", result.Scheduling.Method)
+	}
+	if result.Scheduling.Timestamp == nil || *result.Scheduling.Timestamp != "2026-06-01T09:00:00Z" {
+		t.Errorf("Scheduling.Timestamp = %v", result.Scheduling.Timestamp)
+	}
+}
+
+func TestCreateCampaign_AllFields(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(createCampaignResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	segment := "seg_pro"
+	req := CreateCampaignRequest{
+		Name:              "Spring",
+		CampaignGroupID:   "grp_news",
+		AudienceSegmentID: &segment,
+		Scheduling: &CampaignSchedulingRequest{
+			Method:    CampaignSchedulingMethodSchedule,
+			Timestamp: "2026-06-01T09:00:00Z",
+		},
+	}
+	if _, err := client.CreateCampaign(req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if body["name"] != "Spring" {
+		t.Errorf("name = %v", body["name"])
+	}
+	if body["campaignGroupId"] != "grp_news" {
+		t.Errorf("campaignGroupId = %v", body["campaignGroupId"])
+	}
+	if body["audienceSegmentId"] != "seg_pro" {
+		t.Errorf("audienceSegmentId = %v", body["audienceSegmentId"])
+	}
+	sch, _ := body["scheduling"].(map[string]any)
+	if sch["method"] != "schedule" || sch["timestamp"] != "2026-06-01T09:00:00Z" {
+		t.Errorf("scheduling = %v", sch)
+	}
+	if _, has := body["mailingListId"]; has {
+		t.Errorf("mailingListId should be omitted, got %v", body["mailingListId"])
+	}
+}
+
+func TestUpdateCampaign_NullableFields(t *testing.T) {
+	var body map[string]any
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		rawBody = string(b)
+		json.Unmarshal(b, &body)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(updateCampaignResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	req := UpdateCampaignRequest{
+		MailingListID: nil,
+		Set: map[string]bool{
+			"mailingListId":     true,
+			"audienceSegmentId": true,
+		},
+	}
+	segment := "seg_pro"
+	req.AudienceSegmentID = &segment
+
+	if _, err := client.UpdateCampaign("cmp_abc123", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if _, ok := body["mailingListId"]; !ok {
+		t.Errorf("mailingListId missing from body: %s", rawBody)
+	}
+	if body["mailingListId"] != nil {
+		t.Errorf("mailingListId = %v, want null", body["mailingListId"])
+	}
+	if body["audienceSegmentId"] != "seg_pro" {
+		t.Errorf("audienceSegmentId = %v", body["audienceSegmentId"])
+	}
+	if _, has := body["name"]; has {
+		t.Errorf("name should not be sent, got %v", body["name"])
 	}
 }
