@@ -140,6 +140,26 @@ func TestCreateTransactional_RequestBody(t *testing.T) {
 	}
 }
 
+func TestCreateTransactional_WithGroup(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(createTransactionalResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	req := CreateTransactionalRequest{Name: "Welcome email", TransactionalGroupID: "grp_welcome"}
+	if _, err := client.CreateTransactional(req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if body["transactionalGroupId"] != "grp_welcome" {
+		t.Errorf("transactionalGroupId = %v, want grp_welcome", body["transactionalGroupId"])
+	}
+}
+
 const getTransactionalResponse = `{
 	"id": "tx_abc123",
 	"name": "Welcome email",

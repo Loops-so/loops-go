@@ -314,3 +314,202 @@ func TestUpdateEmailMessage_RequestBody(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEmailMessage_NewFields(t *testing.T) {
+	body := `{
+		"emailMessageId": "em_abc123",
+		"transactionalId": "tx_xyz789",
+		"subject": "Hello",
+		"previewText": "",
+		"fromName": "Acme",
+		"fromEmail": "hello",
+		"replyToEmail": "support@acme.com",
+		"ccEmail": "cc@acme.com",
+		"bccEmail": "bcc@acme.com",
+		"languageCode": "en-US",
+		"emailFormat": "plain",
+		"lmx": "<Paragraph>Hi</Paragraph>",
+		"contentRevisionId": "rev_1",
+		"updatedAt": "2026-06-01T10:00:00Z",
+		"contactPropertiesFallbacks": { "firstName": "there" },
+		"dataVariablesFallbacks": { "url": "https://example.com" }
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	msg, err := client.GetEmailMessage("em_abc123")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if msg.TransactionalID == nil || *msg.TransactionalID != "tx_xyz789" {
+		t.Errorf("TransactionalID = %v, want tx_xyz789", msg.TransactionalID)
+	}
+	if msg.CampaignID != nil {
+		t.Errorf("CampaignID = %v, want nil", msg.CampaignID)
+	}
+	if msg.CCEmail != "cc@acme.com" || msg.BCCEmail != "bcc@acme.com" {
+		t.Errorf("CC/BCC = %q/%q", msg.CCEmail, msg.BCCEmail)
+	}
+	if msg.LanguageCode != "en-US" {
+		t.Errorf("LanguageCode = %q", msg.LanguageCode)
+	}
+	if msg.EmailFormat != EmailFormatPlain {
+		t.Errorf("EmailFormat = %q, want plain", msg.EmailFormat)
+	}
+	if msg.ContactPropertiesFallbacks["firstName"] != "there" {
+		t.Errorf("ContactPropertiesFallbacks = %v", msg.ContactPropertiesFallbacks)
+	}
+}
+
+func TestUpdateEmailMessage_NewFields(t *testing.T) {
+	var body map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		json.Unmarshal(b, &body)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(updateEmailMessageResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	fallback := "there"
+	req := UpdateEmailMessageRequest{
+		EmailMessageFields: EmailMessageFields{
+			CCEmail:      "cc@acme.com",
+			BCCEmail:     "bcc@acme.com",
+			LanguageCode: "en-US",
+			EmailFormat:  EmailFormatPlain,
+			ContactPropertiesFallbacks: map[string]*string{
+				"firstName": &fallback,
+				"lastName":  nil,
+			},
+		},
+		Set: map[string]bool{
+			"ccEmail":                    true,
+			"bccEmail":                   true,
+			"languageCode":               true,
+			"emailFormat":                true,
+			"contactPropertiesFallbacks": true,
+		},
+	}
+	if _, err := client.UpdateEmailMessage("em_abc123", req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if body["ccEmail"] != "cc@acme.com" {
+		t.Errorf("ccEmail = %v", body["ccEmail"])
+	}
+	if body["bccEmail"] != "bcc@acme.com" {
+		t.Errorf("bccEmail = %v", body["bccEmail"])
+	}
+	if body["languageCode"] != "en-US" {
+		t.Errorf("languageCode = %v", body["languageCode"])
+	}
+	if body["emailFormat"] != "plain" {
+		t.Errorf("emailFormat = %v", body["emailFormat"])
+	}
+	fb, _ := body["contactPropertiesFallbacks"].(map[string]any)
+	if fb["firstName"] != "there" {
+		t.Errorf("contactPropertiesFallbacks[firstName] = %v", fb["firstName"])
+	}
+	if v, ok := fb["lastName"]; !ok || v != nil {
+		t.Errorf("contactPropertiesFallbacks[lastName] = %v, want explicit null", v)
+	}
+}
+
+const previewResponse = `{ "id": "em_abc123" }`
+
+func TestPreviewEmailMessage(t *testing.T) {
+	tests := []struct {
+		name       string
+		req        EmailMessagePreviewRequest
+		statusCode int
+		body       string
+		wantAPIErr *APIError
+		wantField  func(t *testing.T, sent map[string]any)
+	}{
+		{
+			name:       "transactional preview",
+			req:        EmailMessagePreviewRequest{Emails: []string{"test@example.com"}, DataVariables: map[string]any{"url": "https://example.com"}},
+			statusCode: http.StatusOK,
+			body:       previewResponse,
+			wantField: func(t *testing.T, sent map[string]any) {
+				emails, _ := sent["emails"].([]any)
+				if len(emails) != 1 || emails[0] != "test@example.com" {
+					t.Errorf("emails = %v", emails)
+				}
+				dv, _ := sent["dataVariables"].(map[string]any)
+				if dv["url"] != "https://example.com" {
+					t.Errorf("dataVariables = %v", dv)
+				}
+				if _, has := sent["contactProperties"]; has {
+					t.Errorf("contactProperties should be omitted")
+				}
+			},
+		},
+		{
+			name:       "campaign preview with contact properties",
+			req:        EmailMessagePreviewRequest{Emails: []string{"a@x.com", "b@x.com"}, ContactProperties: map[string]string{"firstName": "Alice"}},
+			statusCode: http.StatusOK,
+			body:       previewResponse,
+			wantField: func(t *testing.T, sent map[string]any) {
+				cp, _ := sent["contactProperties"].(map[string]any)
+				if cp["firstName"] != "Alice" {
+					t.Errorf("contactProperties = %v", cp)
+				}
+			},
+		},
+		{
+			name:       "rejected variable field",
+			req:        EmailMessagePreviewRequest{Emails: []string{"test@example.com"}, EventProperties: map[string]string{"k": "v"}},
+			statusCode: http.StatusBadRequest,
+			body:       `{"message":"eventProperties are not allowed for campaign previews"}`,
+			wantAPIErr: &APIError{StatusCode: http.StatusBadRequest, Message: "eventProperties are not allowed for campaign previews"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var sent map[string]any
+			var gotPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				b, _ := io.ReadAll(r.Body)
+				json.Unmarshal(b, &sent)
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", WithBaseURL(server.URL))
+			resp, err := client.PreviewEmailMessage("em_abc123", tt.req)
+
+			if tt.wantAPIErr != nil {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) {
+					t.Fatalf("expected *APIError, got %T: %v", err, err)
+				}
+				if apiErr.StatusCode != tt.wantAPIErr.StatusCode {
+					t.Errorf("StatusCode = %d", apiErr.StatusCode)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotPath != "/email-messages/em_abc123/preview" {
+				t.Errorf("path = %q", gotPath)
+			}
+			if resp.ID != "em_abc123" {
+				t.Errorf("ID = %q", resp.ID)
+			}
+			if tt.wantField != nil {
+				tt.wantField(t, sent)
+			}
+		})
+	}
+}

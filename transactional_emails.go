@@ -16,6 +16,7 @@ type Transactional struct {
 	Name                    string   `json:"name"`
 	DraftEmailMessageID     *string  `json:"draftEmailMessageId"`
 	PublishedEmailMessageID *string  `json:"publishedEmailMessageId"`
+	TransactionalGroupID    *string  `json:"transactionalGroupId"`
 	CreatedAt               string   `json:"createdAt"`
 	UpdatedAt               string   `json:"updatedAt"`
 	DataVariables           []string `json:"dataVariables"`
@@ -33,12 +34,16 @@ type TransactionalDraft struct {
 
 // CreateTransactionalRequest is the request body for [Client.CreateTransactional].
 type CreateTransactionalRequest struct {
-	Name string `json:"name"`
+	Name                 string `json:"name"`
+	TransactionalGroupID string `json:"transactionalGroupId,omitempty"`
 }
 
 // UpdateTransactionalRequest is the request body for [Client.UpdateTransactional].
+// Name is required. Set TransactionalGroupID to move the email to a different
+// group; leave it empty to keep the existing group.
 type UpdateTransactionalRequest struct {
-	Name string `json:"name"`
+	Name                 string `json:"name"`
+	TransactionalGroupID string `json:"transactionalGroupId,omitempty"`
 }
 
 // CreateTransactional creates a new transactional email with an empty draft
