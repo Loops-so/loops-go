@@ -54,10 +54,13 @@ client := loops.NewClient("YOUR_API_KEY",
 - Contacts — `CreateContact`, `UpdateContact`, `DeleteContact`, `FindContacts`, `CheckContactSuppression`, `RemoveContactSuppression`
 - Contact properties — `ListContactProperties`, `CreateContactProperty`
 - Mailing lists — `ListMailingLists`
+- Audience segments — `GetAudienceSegment`, `ListAudienceSegments`
 - Events — `SendEvent`
 - Transactional — `SendTransactional`, `ListTransactionals`, `CreateTransactional`, `GetTransactional`, `UpdateTransactional`, `EnsureTransactionalDraft`, `PublishTransactional`
-- Email messages — `GetEmailMessage`, `UpdateEmailMessage`
+- Transactional groups — `CreateTransactionalGroup`, `GetTransactionalGroup`, `UpdateTransactionalGroup`, `ListTransactionalGroups`
+- Email messages — `GetEmailMessage`, `UpdateEmailMessage`, `PreviewEmailMessage`
 - Campaigns — `CreateCampaign`, `UpdateCampaign`, `GetCampaign`, `ListCampaigns`
+- Campaign groups — `CreateCampaignGroup`, `GetCampaignGroup`, `UpdateCampaignGroup`, `ListCampaignGroups`
 - Components — `GetComponent`, `ListComponents`
 - Themes — `GetTheme`, `ListThemes`
 - Uploads — `Upload`, `CreateUpload`, `CompleteUpload`
