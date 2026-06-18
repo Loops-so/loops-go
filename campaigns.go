@@ -8,30 +8,52 @@ import (
 	"net/url"
 )
 
-// Campaign describes a campaign, as returned by [Client.GetCampaign] and
-// [Client.UpdateCampaign]. A campaign holds a single [EmailMessage] linked
-// via EmailMessageID.
-type Campaign struct {
-	CampaignID     string  `json:"campaignId"`
-	EmailMessageID *string `json:"emailMessageId"`
-	Name           string  `json:"name"`
-	Status         string  `json:"status"`
-	CreatedAt      string  `json:"createdAt"`
-	UpdatedAt      string  `json:"updatedAt"`
+// CampaignSchedulingMethodNow means the campaign sends immediately when
+// scheduled.
+const CampaignSchedulingMethodNow = "now"
+
+// CampaignSchedulingMethodSchedule means the campaign sends at a specific
+// time.
+const CampaignSchedulingMethodSchedule = "schedule"
+
+// CampaignScheduling describes when a campaign is scheduled to send.
+// Timestamp is nil when Method is [CampaignSchedulingMethodNow].
+type CampaignScheduling struct {
+	Method    string  `json:"method"`
+	Timestamp *string `json:"timestamp"`
 }
 
-// CampaignListItem is the entry shape returned by [Client.ListCampaigns]. It
-// includes the email's Subject (in addition to the fields on [Campaign]) so
-// list views don't need an extra fetch.
-type CampaignListItem struct {
-	CampaignID     string  `json:"campaignId"`
-	EmailMessageID *string `json:"emailMessageId"`
-	Name           string  `json:"name"`
-	Subject        string  `json:"subject"`
-	Status         string  `json:"status"`
-	CreatedAt      string  `json:"createdAt"`
-	UpdatedAt      string  `json:"updatedAt"`
+// CampaignSchedulingRequest sets when a campaign should send. Timestamp is
+// required (and must be in the future) when Method is
+// [CampaignSchedulingMethodSchedule], and must be empty when Method is
+// [CampaignSchedulingMethodNow].
+type CampaignSchedulingRequest struct {
+	Method    string `json:"method"`
+	Timestamp string `json:"timestamp,omitempty"`
 }
+
+// Campaign describes a campaign, as returned by [Client.GetCampaign],
+// [Client.UpdateCampaign], and [Client.ListCampaigns]. A campaign holds a
+// single [EmailMessage] linked via EmailMessageID.
+type Campaign struct {
+	ID                string             `json:"id"`
+	EmailMessageID    *string            `json:"emailMessageId"`
+	Name              string             `json:"name"`
+	Status            string             `json:"status"`
+	CreatedAt         string             `json:"createdAt"`
+	UpdatedAt         string             `json:"updatedAt"`
+	CampaignGroupID   *string            `json:"campaignGroupId"`
+	MailingListID     *string            `json:"mailingListId"`
+	AudienceSegmentID *string            `json:"audienceSegmentId"`
+	AudienceFilter    *AudienceFilter    `json:"audienceFilter"`
+	Scheduling        CampaignScheduling `json:"scheduling"`
+}
+
+// CampaignListItem is the entry shape returned by [Client.ListCampaigns].
+//
+// Deprecated: list items are now full [Campaign] values; use [Campaign]
+// directly. CampaignListItem is retained as an alias.
+type CampaignListItem = Campaign
 
 // LmxWarning is a non-fatal issue reported by the Loops Markup (LMX) linter
 // when validating email content. Severity is typically "warning" or "info".
@@ -46,22 +68,50 @@ type LmxWarning struct {
 // embedded in [UpdateEmailMessageRequest]; the request's Set map determines
 // which fields are actually written.
 type EmailMessageFields struct {
-	Subject      string `json:"subject,omitempty"`
-	PreviewText  string `json:"previewText,omitempty"`
-	FromName     string `json:"fromName,omitempty"`
-	FromEmail    string `json:"fromEmail,omitempty"`
-	ReplyToEmail string `json:"replyToEmail,omitempty"`
-	LMX          string `json:"lmx,omitempty"`
+	Subject                    string             `json:"subject,omitempty"`
+	PreviewText                string             `json:"previewText,omitempty"`
+	FromName                   string             `json:"fromName,omitempty"`
+	FromEmail                  string             `json:"fromEmail,omitempty"`
+	ReplyToEmail               string             `json:"replyToEmail,omitempty"`
+	CCEmail                    string             `json:"ccEmail,omitempty"`
+	BCCEmail                   string             `json:"bccEmail,omitempty"`
+	LanguageCode               string             `json:"languageCode,omitempty"`
+	EmailFormat                string             `json:"emailFormat,omitempty"`
+	LMX                        string             `json:"lmx,omitempty"`
+	ContactPropertiesFallbacks map[string]*string `json:"contactPropertiesFallbacks,omitempty"`
+	EventPropertiesFallbacks   map[string]*string `json:"eventPropertiesFallbacks,omitempty"`
+	DataVariablesFallbacks     map[string]*string `json:"dataVariablesFallbacks,omitempty"`
 }
 
 // CreateCampaignRequest is the request body for [Client.CreateCampaign].
+// MailingListID and AudienceSegmentID are pointer-typed: leave nil to omit,
+// or set to a pointer to a string value.
 type CreateCampaignRequest struct {
-	Name string `json:"name"`
+	Name              string                     `json:"name"`
+	CampaignGroupID   string                     `json:"campaignGroupId,omitempty"`
+	MailingListID     *string                    `json:"mailingListId,omitempty"`
+	AudienceSegmentID *string                    `json:"audienceSegmentId,omitempty"`
+	AudienceFilter    *AudienceFilter            `json:"audienceFilter,omitempty"`
+	Scheduling        *CampaignSchedulingRequest `json:"scheduling,omitempty"`
 }
 
 // UpdateCampaignRequest is the request body for [Client.UpdateCampaign].
+//
+// Set selects which fields are applied — only fields whose key is true in
+// Set are sent. This lets the caller distinguish "leave alone" from "set to
+// null" for nullable fields, and from "set to empty string" for required
+// string fields.
+//
+// At least one field must be selected. Setting AudienceSegmentID clears any
+// AudienceFilter and vice versa.
 type UpdateCampaignRequest struct {
-	Name string `json:"name"`
+	Name              string
+	CampaignGroupID   string
+	MailingListID     *string
+	AudienceSegmentID *string
+	AudienceFilter    *AudienceFilter
+	Scheduling        *CampaignSchedulingRequest
+	Set               map[string]bool
 }
 
 // CampaignCreateResponse is returned by [Client.CreateCampaign]. It embeds
@@ -103,10 +153,31 @@ func (c *Client) CreateCampaign(req CreateCampaignRequest) (*CampaignCreateRespo
 	return &result, nil
 }
 
-// UpdateCampaign updates the campaign identified by id and returns its new
-// state.
+// UpdateCampaign updates the campaign identified by id with the fields
+// selected in req.Set and returns its new state. See [UpdateCampaignRequest]
+// for the selection semantics.
 func (c *Client) UpdateCampaign(id string, req UpdateCampaignRequest) (*Campaign, error) {
-	b, err := json.Marshal(req)
+	body := map[string]any{}
+	if req.Set["name"] {
+		body["name"] = req.Name
+	}
+	if req.Set["campaignGroupId"] {
+		body["campaignGroupId"] = req.CampaignGroupID
+	}
+	if req.Set["mailingListId"] {
+		body["mailingListId"] = req.MailingListID
+	}
+	if req.Set["audienceSegmentId"] {
+		body["audienceSegmentId"] = req.AudienceSegmentID
+	}
+	if req.Set["audienceFilter"] {
+		body["audienceFilter"] = req.AudienceFilter
+	}
+	if req.Set["scheduling"] {
+		body["scheduling"] = req.Scheduling
+	}
+
+	b, err := json.Marshal(body)
 	if err != nil {
 		return nil, fmt.Errorf("failed to encode request: %w", err)
 	}
@@ -161,7 +232,7 @@ func (c *Client) GetCampaign(id string) (*Campaign, error) {
 
 // ListCampaigns returns a single page of campaigns along with pagination
 // information. To iterate every page, use [Paginate].
-func (c *Client) ListCampaigns(params PaginationParams) ([]CampaignListItem, *Pagination, error) {
+func (c *Client) ListCampaigns(params PaginationParams) ([]Campaign, *Pagination, error) {
 	q := url.Values{}
 	if params.PerPage != "" {
 		q.Set("perPage", params.PerPage)
@@ -191,8 +262,8 @@ func (c *Client) ListCampaigns(params PaginationParams) ([]CampaignListItem, *Pa
 	}
 
 	var result struct {
-		Pagination Pagination         `json:"pagination"`
-		Data       []CampaignListItem `json:"data"`
+		Pagination Pagination `json:"pagination"`
+		Data       []Campaign `json:"data"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode response: %w", err)

@@ -10,7 +10,7 @@ import (
 
 const getComponentResponse = `{
 	"success": true,
-	"componentId": "cmpt_abc123",
+	"id": "cmpt_abc123",
 	"name": "Header",
 	"lmx": "<H1>Hello</H1>"
 }`
@@ -27,12 +27,12 @@ const listComponentsResponse = `{
 	},
 	"data": [
 		{
-			"componentId": "cmpt_1",
+			"id": "cmpt_1",
 			"name": "Header",
 			"lmx": "<H1>Hello</H1>"
 		},
 		{
-			"componentId": "cmpt_2",
+			"id": "cmpt_2",
 			"name": "Footer",
 			"lmx": "<Paragraph>Bye</Paragraph>"
 		}
@@ -122,8 +122,8 @@ func TestGetComponent(t *testing.T) {
 			if want := "/components/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
 			}
-			if result.ComponentID != tt.wantID {
-				t.Errorf("ComponentID = %q, want %q", result.ComponentID, tt.wantID)
+			if result.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
 			}
 			if result.Name != "Header" {
 				t.Errorf("Name = %q, want Header", result.Name)
@@ -237,8 +237,8 @@ func TestListComponents_ResponseData(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if components[0].ComponentID != "cmpt_1" {
-		t.Errorf("ComponentID = %q, want cmpt_1", components[0].ComponentID)
+	if components[0].ID != "cmpt_1" {
+		t.Errorf("ID = %q, want cmpt_1", components[0].ID)
 	}
 	if components[0].Name != "Header" {
 		t.Errorf("Name = %q, want Header", components[0].Name)

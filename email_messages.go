@@ -7,21 +7,38 @@ import (
 	"net/http"
 )
 
+// EmailFormatStyled is the rendered email format with HTML styling.
+const EmailFormatStyled = "styled"
+
+// EmailFormatPlain is the rendered email format with no HTML styling.
+const EmailFormatPlain = "plain"
+
 // EmailMessage is the persisted form of an email's content and metadata,
 // including its LMX body. Warnings is populated by the LMX linter when the
 // message is fetched or updated.
+//
+// CampaignID and TransactionalID are mutually exclusive — exactly one is
+// non-nil and identifies the parent.
 type EmailMessage struct {
-	EmailMessageID    string       `json:"emailMessageId"`
-	CampaignID        *string      `json:"campaignId"`
-	Subject           string       `json:"subject"`
-	PreviewText       string       `json:"previewText"`
-	FromName          string       `json:"fromName"`
-	FromEmail         string       `json:"fromEmail"`
-	ReplyToEmail      string       `json:"replyToEmail"`
-	LMX               string       `json:"lmx"`
-	ContentRevisionID *string      `json:"contentRevisionId"`
-	UpdatedAt         string       `json:"updatedAt"`
-	Warnings          []LmxWarning `json:"warnings,omitempty"`
+	ID                         string            `json:"id"`
+	CampaignID                 *string           `json:"campaignId,omitempty"`
+	TransactionalID            *string           `json:"transactionalId,omitempty"`
+	Subject                    string            `json:"subject"`
+	PreviewText                string            `json:"previewText"`
+	FromName                   string            `json:"fromName"`
+	FromEmail                  string            `json:"fromEmail"`
+	ReplyToEmail               string            `json:"replyToEmail"`
+	CCEmail                    string            `json:"ccEmail,omitempty"`
+	BCCEmail                   string            `json:"bccEmail,omitempty"`
+	LanguageCode               string            `json:"languageCode,omitempty"`
+	EmailFormat                string            `json:"emailFormat"`
+	LMX                        string            `json:"lmx"`
+	ContentRevisionID          *string           `json:"contentRevisionId"`
+	UpdatedAt                  string            `json:"updatedAt"`
+	ContactPropertiesFallbacks map[string]string `json:"contactPropertiesFallbacks,omitempty"`
+	EventPropertiesFallbacks   map[string]string `json:"eventPropertiesFallbacks,omitempty"`
+	DataVariablesFallbacks     map[string]string `json:"dataVariablesFallbacks,omitempty"`
+	Warnings                   []LmxWarning      `json:"warnings,omitempty"`
 }
 
 // UpdateEmailMessageRequest is the request body for [Client.UpdateEmailMessage].
@@ -30,12 +47,35 @@ type EmailMessage struct {
 // applied — only fields whose key is true in Set are sent. This lets the
 // caller distinguish "leave alone" from "set to empty string".
 //
+// For the *Fallbacks maps, a nil value in the map clears the fallback for
+// that key; a string value sets it. Each map is a full replacement of the
+// server-side map.
+//
 // ExpectedRevisionID is optional; if set, the update fails if the message's
 // current ContentRevisionID does not match (optimistic concurrency control).
 type UpdateEmailMessageRequest struct {
 	EmailMessageFields
 	Set                map[string]bool
 	ExpectedRevisionID string
+}
+
+// EmailMessagePreviewRequest is the request body for
+// [Client.PreviewEmailMessage]. The accepted variable fields depend on the
+// parent email message's type:
+//   - campaign previews accept ContactProperties
+//   - workflow previews accept ContactProperties and EventProperties
+//   - transactional previews accept DataVariables
+type EmailMessagePreviewRequest struct {
+	Emails            []string          `json:"emails"`
+	ContactProperties map[string]string `json:"contactProperties,omitempty"`
+	EventProperties   map[string]string `json:"eventProperties,omitempty"`
+	DataVariables     map[string]any    `json:"dataVariables,omitempty"`
+}
+
+// EmailMessagePreviewResponse is returned by [Client.PreviewEmailMessage].
+// ID is the email message ID the preview was sent for.
+type EmailMessagePreviewResponse struct {
+	ID string `json:"id"`
 }
 
 // GetEmailMessage returns the email message identified by id.
@@ -83,8 +123,29 @@ func (c *Client) UpdateEmailMessage(id string, req UpdateEmailMessageRequest) (*
 	if req.Set["replyToEmail"] {
 		body["replyToEmail"] = req.ReplyToEmail
 	}
+	if req.Set["ccEmail"] {
+		body["ccEmail"] = req.CCEmail
+	}
+	if req.Set["bccEmail"] {
+		body["bccEmail"] = req.BCCEmail
+	}
+	if req.Set["languageCode"] {
+		body["languageCode"] = req.LanguageCode
+	}
+	if req.Set["emailFormat"] {
+		body["emailFormat"] = req.EmailFormat
+	}
 	if req.Set["lmx"] {
 		body["lmx"] = req.LMX
+	}
+	if req.Set["contactPropertiesFallbacks"] {
+		body["contactPropertiesFallbacks"] = req.ContactPropertiesFallbacks
+	}
+	if req.Set["eventPropertiesFallbacks"] {
+		body["eventPropertiesFallbacks"] = req.EventPropertiesFallbacks
+	}
+	if req.Set["dataVariablesFallbacks"] {
+		body["dataVariablesFallbacks"] = req.DataVariablesFallbacks
 	}
 	if req.ExpectedRevisionID != "" {
 		body["expectedRevisionId"] = req.ExpectedRevisionID
@@ -111,6 +172,38 @@ func (c *Client) UpdateEmailMessage(id string, req UpdateEmailMessageRequest) (*
 	}
 
 	var result EmailMessage
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// PreviewEmailMessage sends a test preview of the email message identified
+// by id to the addresses in req.Emails. See [EmailMessagePreviewRequest]
+// for the allowed variable fields by parent type.
+func (c *Client) PreviewEmailMessage(id string, req EmailMessagePreviewRequest) (*EmailMessagePreviewResponse, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/email-messages/"+id+"/preview", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result EmailMessagePreviewResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}

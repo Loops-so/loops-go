@@ -8,11 +8,11 @@ import (
 )
 
 // Component is a reusable LMX snippet that can be included from other email
-// messages. It is identified by ComponentID and has an LMX body.
+// messages. It is identified by ID and has an LMX body.
 type Component struct {
-	ComponentID string `json:"componentId"`
-	Name        string `json:"name"`
-	LMX         string `json:"lmx"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	LMX  string `json:"lmx"`
 }
 
 // GetComponent returns the component identified by id.

@@ -55,7 +55,7 @@ type ThemeStyles struct {
 // Theme is a named collection of styles applied to email messages. Exactly
 // one theme on the account has IsDefault set to true.
 type Theme struct {
-	ThemeID   string      `json:"themeId"`
+	ID        string      `json:"id"`
 	Name      string      `json:"name"`
 	Styles    ThemeStyles `json:"styles"`
 	IsDefault bool        `json:"isDefault"`
