@@ -2,6 +2,8 @@ package loops
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -237,5 +239,120 @@ func TestDo_Retries(t *testing.T) {
 				t.Errorf("attempts = %d, want %d", attempts.Load(), tt.wantAttempts)
 			}
 		})
+	}
+}
+
+func TestDo_Exported(t *testing.T) {
+	var gotMethod, gotPath, gotAuth, gotUA, gotCT string
+	var gotBody []byte
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotAuth = r.Header.Get("Authorization")
+		gotUA = r.Header.Get("User-Agent")
+		gotCT = r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprint(w, `{"id":"abc"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	payload := map[string]any{"email": "user@example.com"}
+	resp, err := client.Do(context.Background(), http.MethodPost, "/contacts/create", payload)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusCreated)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want %q", gotMethod, http.MethodPost)
+	}
+	if gotPath != "/contacts/create" {
+		t.Errorf("path = %q, want %q", gotPath, "/contacts/create")
+	}
+	if gotAuth != "Bearer test-key" {
+		t.Errorf("Authorization = %q, want %q", gotAuth, "Bearer test-key")
+	}
+	if gotUA != "loops-go/"+Version {
+		t.Errorf("User-Agent = %q, want %q", gotUA, "loops-go/"+Version)
+	}
+	if gotCT != "application/json" {
+		t.Errorf("Content-Type = %q, want %q", gotCT, "application/json")
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal(gotBody, &decoded); err != nil {
+		t.Fatalf("body not valid JSON: %v (body=%q)", err, gotBody)
+	}
+	if decoded["email"] != "user@example.com" {
+		t.Errorf("body email = %v, want %q", decoded["email"], "user@example.com")
+	}
+}
+
+func TestDo_NilBody(t *testing.T) {
+	var gotCT string
+	var gotLen int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotCT = r.Header.Get("Content-Type")
+		gotLen = r.ContentLength
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	resp, err := client.Do(context.Background(), http.MethodGet, "/api-key", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if gotCT != "" {
+		t.Errorf("Content-Type = %q, want empty", gotCT)
+	}
+	if gotLen > 0 {
+		t.Errorf("ContentLength = %d, want 0", gotLen)
+	}
+}
+
+func TestDo_NonOKReturnsRawResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":"bad request"}`)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	resp, err := client.Do(context.Background(), http.MethodGet, "/whatever", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != `{"error":"bad request"}` {
+		t.Errorf("body = %q, want raw error body passthrough", body)
+	}
+}
+
+func TestDo_ContextCancel(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	resp, err := client.Do(ctx, http.MethodGet, "/", nil)
+	if err == nil {
+		resp.Body.Close()
+		t.Fatal("expected error from cancelled context, got nil")
 	}
 }
