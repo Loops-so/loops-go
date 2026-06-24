@@ -21,6 +21,7 @@ package loops
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -140,6 +141,36 @@ func (c *Client) logResponse(resp *http.Response) {
 	} else {
 		fmt.Fprintf(c.logger, "[debug] Body: %s\n", raw)
 	}
+}
+
+// Do executes an arbitrary request against the Loops API. The request is
+// built against the configured base URL with the Authorization and
+// User-Agent headers attached, body is JSON-encoded when non-nil, and
+// the call runs through the shared retry/backoff plumbing. Callers are
+// responsible for closing the returned response body.
+//
+// Do is an escape hatch for endpoints that do not yet have a dedicated
+// method, or for callers that want to share this client's retries and
+// User-Agent. Non-2xx responses are returned as-is — inspect
+// resp.StatusCode and decode the body to suit. Transport errors are
+// wrapped, matching the behavior of the higher-level methods.
+//
+// To send a pre-encoded JSON payload without re-marshaling, pass a
+// [json.RawMessage].
+func (c *Client) Do(ctx context.Context, method, path string, body any) (*http.Response, error) {
+	var reader io.Reader
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to encode request: %w", err)
+		}
+		reader = bytes.NewReader(b)
+	}
+	req, err := c.newRequest(method, path, reader)
+	if err != nil {
+		return nil, err
+	}
+	return c.do(req.WithContext(ctx))
 }
 
 func (c *Client) do(req *http.Request) (*http.Response, error) {

@@ -138,6 +138,20 @@ if err != nil {
 
 For finer control, call `CreateUpload` and `CompleteUpload` directly and do the `PUT` to the presigned URL yourself.
 
+## Escape hatch
+
+`Client.Do` is a low-level entry point for endpoints that do not yet have a dedicated method. It shares the client's auth, User-Agent, retries and backoff. The body is JSON-encoded when non-nil; pass `json.RawMessage` to forward a pre-encoded payload. The raw `*http.Response` is returned so the caller decides how to handle non-2xx — close the body when done.
+
+```go
+resp, err := client.Do(ctx, http.MethodPost, "/contacts/create", map[string]any{
+    "email": "user@example.com",
+})
+if err != nil {
+    return err
+}
+defer resp.Body.Close()
+```
+
 ## License
 
 MIT
