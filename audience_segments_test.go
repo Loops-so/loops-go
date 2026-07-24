@@ -3,6 +3,7 @@ package loops
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -189,6 +190,146 @@ func TestGetAudienceSegment(t *testing.T) {
 			a := result.Filter.Conditions[2]
 			if a.Activity == nil || a.Activity.Action != "clicked" || a.Activity.Target != "campaign" || a.Activity.ID != "cmp_welcome" {
 				t.Errorf("Conditions[2].Activity = %+v", a.Activity)
+			}
+		})
+	}
+}
+
+const createAudienceSegmentResponse = `{
+	"id": "seg_new",
+	"name": "Pro plan",
+	"description": "Contacts on the pro plan",
+	"createdAt": "2026-06-01T10:00:00Z",
+	"updatedAt": "2026-06-01T10:00:00Z",
+	"filter": {
+		"match": "all",
+		"conditions": [
+			{
+				"type": "property",
+				"key": "plan",
+				"operator": "equals",
+				"value": "pro"
+			}
+		]
+	}
+}`
+
+func TestCreateAudienceSegment(t *testing.T) {
+	tests := []struct {
+		name       string
+		req        CreateAudienceSegmentRequest
+		statusCode int
+		body       string
+		wantAPIErr *APIError
+		wantErrMsg string
+		wantBody   string
+		wantID     string
+	}{
+		{
+			name: "success",
+			req: CreateAudienceSegmentRequest{
+				Name:        "Pro plan",
+				Description: "Contacts on the pro plan",
+				Filter: AudienceFilter{
+					Match: "all",
+					Conditions: []AudienceFilterCondition{
+						{
+							Type: AudienceConditionTypeProperty,
+							Property: &PropertyCondition{
+								Key:      "plan",
+								Operator: "equals",
+								Value:    &PropertyConditionValue{String: ptr("pro")},
+							},
+						},
+					},
+				},
+			},
+			statusCode: http.StatusOK,
+			body:       createAudienceSegmentResponse,
+			wantBody:   `{"name":"Pro plan","description":"Contacts on the pro plan","filter":{"match":"all","conditions":[{"key":"plan","operator":"equals","type":"property","value":"pro"}]}}`,
+			wantID:     "seg_new",
+		},
+		{
+			name: "bad request",
+			req: CreateAudienceSegmentRequest{
+				Name: "Pro plan",
+				Filter: AudienceFilter{
+					Match: "all",
+					Conditions: []AudienceFilterCondition{
+						{
+							Type:     AudienceConditionTypeProperty,
+							Property: &PropertyCondition{Key: "plan", Operator: "equals", Value: &PropertyConditionValue{String: ptr("pro")}},
+						},
+					},
+				},
+			},
+			statusCode: http.StatusBadRequest,
+			body:       `{"message":"A segment with this name already exists"}`,
+			wantAPIErr: &APIError{StatusCode: http.StatusBadRequest, Message: "A segment with this name already exists"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotMethod, gotPath, gotBody string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotMethod = r.Method
+				gotPath = r.URL.Path
+				buf := new(strings.Builder)
+				io.Copy(buf, r.Body)
+				gotBody = buf.String()
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", WithBaseURL(server.URL))
+			result, err := client.CreateAudienceSegment(tt.req)
+
+			if tt.wantAPIErr != nil {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) {
+					t.Fatalf("expected *APIError, got %T: %v", err, err)
+				}
+				if apiErr.StatusCode != tt.wantAPIErr.StatusCode {
+					t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, tt.wantAPIErr.StatusCode)
+				}
+				if apiErr.Message != tt.wantAPIErr.Message {
+					t.Errorf("Message = %q, want %q", apiErr.Message, tt.wantAPIErr.Message)
+				}
+				return
+			}
+
+			if tt.wantErrMsg != "" {
+				if err == nil {
+					t.Fatalf("expected error containing %q, got nil", tt.wantErrMsg)
+				}
+				if !strings.Contains(err.Error(), tt.wantErrMsg) {
+					t.Errorf("error = %q, want it to contain %q", err.Error(), tt.wantErrMsg)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotMethod != http.MethodPost {
+				t.Errorf("method = %q, want POST", gotMethod)
+			}
+			if gotPath != "/audience-segments" {
+				t.Errorf("path = %q, want /audience-segments", gotPath)
+			}
+			if gotBody != tt.wantBody {
+				t.Errorf("body = %s, want %s", gotBody, tt.wantBody)
+			}
+			if result.ID != tt.wantID {
+				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
+			}
+			if result.Filter == nil {
+				t.Fatal("Filter is nil, want non-nil")
+			}
+			if result.Filter.Match != "all" {
+				t.Errorf("Filter.Match = %q, want all", result.Filter.Match)
 			}
 		})
 	}
