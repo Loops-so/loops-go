@@ -513,3 +513,116 @@ func TestPreviewEmailMessage(t *testing.T) {
 		})
 	}
 }
+
+func TestGetEmailMessageGuardian(t *testing.T) {
+	tests := []struct {
+		name       string
+		id         string
+		statusCode int
+		body       string
+		wantAPIErr *APIError
+		wantErr    int
+		wantWarn   int
+	}{
+		{
+			name:       "errors and warnings",
+			id:         "em_abc123",
+			statusCode: http.StatusOK,
+			body: `{
+				"errors": [
+					{
+						"rule": "missingButtonHrefs",
+						"title": "Missing button link",
+						"description": "Buttons won't work without href value",
+						"items": [{"label": "Click here"}]
+					}
+				],
+				"warnings": [
+					{
+						"rule": "unsupportedContactProperties",
+						"title": "Unsupported contact property",
+						"description": "This property is not supported",
+						"items": [{"label": "First name", "codeName": "firstName"}]
+					}
+				]
+			}`,
+			wantErr:  1,
+			wantWarn: 1,
+		},
+		{
+			name:       "all clear",
+			id:         "em_clean",
+			statusCode: http.StatusOK,
+			body:       `{"errors":[],"warnings":[]}`,
+			wantErr:    0,
+			wantWarn:   0,
+		},
+		{
+			name:       "not found",
+			id:         "em_missing",
+			statusCode: http.StatusNotFound,
+			body:       `{"success":false,"message":"Email message not found"}`,
+			wantAPIErr: &APIError{StatusCode: http.StatusNotFound, Message: "Email message not found"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				w.WriteHeader(tt.statusCode)
+				w.Write([]byte(tt.body))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", WithBaseURL(server.URL))
+			result, err := client.GetEmailMessageGuardian(tt.id)
+
+			if tt.wantAPIErr != nil {
+				var apiErr *APIError
+				if !errors.As(err, &apiErr) {
+					t.Fatalf("expected *APIError, got %T: %v", err, err)
+				}
+				if apiErr.StatusCode != tt.wantAPIErr.StatusCode {
+					t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, tt.wantAPIErr.StatusCode)
+				}
+				if apiErr.Message != tt.wantAPIErr.Message {
+					t.Errorf("Message = %q, want %q", apiErr.Message, tt.wantAPIErr.Message)
+				}
+				return
+			}
+
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if want := "/email-messages/" + tt.id + "/guardian"; gotPath != want {
+				t.Errorf("path = %q, want %q", gotPath, want)
+			}
+			if len(result.Errors) != tt.wantErr {
+				t.Errorf("len(Errors) = %d, want %d", len(result.Errors), tt.wantErr)
+			}
+			if len(result.Warnings) != tt.wantWarn {
+				t.Errorf("len(Warnings) = %d, want %d", len(result.Warnings), tt.wantWarn)
+			}
+			if tt.wantErr > 0 {
+				e := result.Errors[0]
+				if e.Rule != "missingButtonHrefs" {
+					t.Errorf("Errors[0].Rule = %q, want missingButtonHrefs", e.Rule)
+				}
+				if len(e.Items) != 1 || e.Items[0].Label != "Click here" {
+					t.Errorf("Errors[0].Items = %v, want [Click here]", e.Items)
+				}
+				if e.Items[0].CodeName != "" {
+					t.Errorf("Errors[0].Items[0].CodeName = %q, want empty", e.Items[0].CodeName)
+				}
+			}
+			if tt.wantWarn > 0 {
+				wItems := result.Warnings[0].Items
+				if len(wItems) != 1 || wItems[0].Label != "First name" || wItems[0].CodeName != "firstName" {
+					t.Errorf("Warnings[0].Items = %v, want label=First name codeName=firstName", wItems)
+				}
+			}
+		})
+	}
+}

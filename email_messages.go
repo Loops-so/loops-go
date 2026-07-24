@@ -78,6 +78,29 @@ type EmailMessagePreviewResponse struct {
 	ID string `json:"id"`
 }
 
+// GuardianRuleItem is a single element that triggered a [GuardianRule].
+type GuardianRuleItem struct {
+	Label    string `json:"label"`
+	CodeName string `json:"codeName,omitempty"`
+}
+
+// GuardianRule is a Guardian check that fired against an email message,
+// grouping the specific Items that triggered it.
+type GuardianRule struct {
+	Rule        string             `json:"rule"`
+	Title       string             `json:"title"`
+	Description string             `json:"description"`
+	Items       []GuardianRuleItem `json:"items"`
+}
+
+// EmailMessageGuardianResponse is returned by [Client.GetEmailMessageGuardian].
+// Errors must be resolved before the email can be published; Warnings are
+// advisory and do not block publishing.
+type EmailMessageGuardianResponse struct {
+	Errors   []GuardianRule `json:"errors"`
+	Warnings []GuardianRule `json:"warnings"`
+}
+
 // GetEmailMessage returns the email message identified by id.
 func (c *Client) GetEmailMessage(id string) (*EmailMessage, error) {
 	req, err := c.newRequest(http.MethodGet, "/email-messages/"+id, nil)
@@ -204,6 +227,32 @@ func (c *Client) PreviewEmailMessage(id string, req EmailMessagePreviewRequest) 
 	}
 
 	var result EmailMessagePreviewResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// GetEmailMessageGuardian runs Guardian content validation on the email
+// message identified by id and returns any errors and warnings.
+func (c *Client) GetEmailMessageGuardian(id string) (*EmailMessageGuardianResponse, error) {
+	req, err := c.newRequest(http.MethodGet, "/email-messages/"+id+"/guardian", nil)
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result EmailMessageGuardianResponse
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode response: %w", err)
 	}
