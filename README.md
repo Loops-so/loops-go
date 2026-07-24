@@ -64,7 +64,7 @@ client := loops.NewClient("YOUR_API_KEY",
 - Components — `GetComponent`, `ListComponents`
 - Themes — `GetTheme`, `ListThemes`
 - Uploads — `Upload`, `CreateUpload`, `CompleteUpload`
-- Workflows — `ListWorkflows`, `GetWorkflow`, `GetWorkflowNode`
+- Workflows — `ListWorkflows`, `GetWorkflow`, `GetWorkflowNode`, `CreateWorkflow`, `UpdateWorkflow`, `ChangeWorkflowMailingList`, `CreateWorkflowNode`, `UpdateWorkflowNode`, `AddWorkflowBranch`, `DeleteWorkflowNode`, `DeleteWorkflowNodeRecursive`
 
 Full reference: [pkg.go.dev/github.com/loops-so/loops-go](https://pkg.go.dev/github.com/loops-so/loops-go).
 
