@@ -54,15 +54,16 @@ client := loops.NewClient("YOUR_API_KEY",
 - Contacts — `CreateContact`, `UpdateContact`, `DeleteContact`, `FindContacts`, `CheckContactSuppression`, `RemoveContactSuppression`
 - Contact properties — `ListContactProperties`, `CreateContactProperty`
 - Mailing lists — `ListMailingLists`
-- Audience segments — `GetAudienceSegment`, `ListAudienceSegments`
+- Audience segments — `GetAudienceSegment`, `ListAudienceSegments`, `CreateAudienceSegment`
 - Events — `SendEvent`
+- Event patterns — `ListEventPatterns`, `GetEventPatternByName`, `GetEventPattern`
 - Transactional — `SendTransactional`, `ListTransactionals`, `CreateTransactional`, `GetTransactional`, `UpdateTransactional`, `EnsureTransactionalDraft`, `PublishTransactional`
 - Transactional groups — `CreateTransactionalGroup`, `GetTransactionalGroup`, `UpdateTransactionalGroup`, `ListTransactionalGroups`
-- Email messages — `GetEmailMessage`, `UpdateEmailMessage`, `PreviewEmailMessage`
+- Email messages — `GetEmailMessage`, `UpdateEmailMessage`, `PreviewEmailMessage`, `GetEmailMessageGuardian`
 - Campaigns — `CreateCampaign`, `UpdateCampaign`, `GetCampaign`, `ListCampaigns`
 - Campaign groups — `CreateCampaignGroup`, `GetCampaignGroup`, `UpdateCampaignGroup`, `ListCampaignGroups`
-- Components — `GetComponent`, `ListComponents`
-- Themes — `GetTheme`, `ListThemes`
+- Components — `GetComponent`, `ListComponents`, `CreateComponent`, `UpdateComponent`
+- Themes — `GetTheme`, `ListThemes`, `CreateTheme`, `UpdateTheme`
 - Uploads — `Upload`, `CreateUpload`, `CompleteUpload`
 - Workflows — `ListWorkflows`, `GetWorkflow`, `GetWorkflowNode`
 
