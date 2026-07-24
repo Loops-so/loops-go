@@ -3,6 +3,7 @@ package loops
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -36,6 +37,8 @@ const listWorkflowsResponse = `{
 
 const getSimplifiedWorkflowResponse = `{
 	"id": "wf_1",
+	"status": "Draft",
+	"workflowRevisionId": "rev_1",
 	"name": "Onboarding",
 	"description": "Welcome new signups",
 	"emoji": "👋",
@@ -189,6 +192,12 @@ func TestGetWorkflow(t *testing.T) {
 			if result.ID != "wf_1" {
 				t.Errorf("ID = %q, want wf_1", result.ID)
 			}
+			if result.Status != WorkflowStatusDraft {
+				t.Errorf("Status = %q, want Draft", result.Status)
+			}
+			if result.WorkflowRevisionID == nil || *result.WorkflowRevisionID != "rev_1" {
+				t.Errorf("WorkflowRevisionID = %v, want rev_1", result.WorkflowRevisionID)
+			}
 			if result.RootNodeID == nil || *result.RootNodeID != "node_root" {
 				t.Errorf("RootNodeID = %v, want node_root", result.RootNodeID)
 			}
@@ -248,7 +257,8 @@ func TestGetWorkflowNode_EventTrigger(t *testing.T) {
 			{"name": "plan", "type": "string"},
 			{"name": "seats", "type": "number"}
 		],
-		"reEligible": true
+		"reEligible": true,
+		"workflowRevisionId": "rev_1"
 	}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if want := "/workflows/wf_1/nodes/node_evt"; r.URL.Path != want {
@@ -263,6 +273,9 @@ func TestGetWorkflowNode_EventTrigger(t *testing.T) {
 	node, err := client.GetWorkflowNode("wf_1", "node_evt")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+	if node.WorkflowRevisionID == nil || *node.WorkflowRevisionID != "rev_1" {
+		t.Errorf("WorkflowRevisionID = %v, want rev_1", node.WorkflowRevisionID)
 	}
 	if node.TypeName != WorkflowNodeTypeEventTrigger {
 		t.Fatalf("TypeName = %q, want EventTrigger", node.TypeName)
@@ -488,6 +501,618 @@ func TestSimplifiedWorkflowNode_MarshalRoundTrip(t *testing.T) {
 	}
 }
 
+// decodeBody reads and JSON-decodes the request body of a test server handler.
+func decodeBody(t *testing.T, r *http.Request) map[string]any {
+	t.Helper()
+	var got map[string]any
+	if err := json.NewDecoder(r.Body).Decode(&got); err != nil {
+		t.Fatalf("decode request body: %v", err)
+	}
+	return got
+}
+
+func TestCreateWorkflow(t *testing.T) {
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	resp := `{
+		"id": "wf_new",
+		"status": "Draft",
+		"workflowRevisionId": null,
+		"name": "New flow",
+		"mailingListId": "ml_1",
+		"rootNodeId": "node_root",
+		"nodes": {}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	wf, err := client.CreateWorkflow(CreateWorkflowRequest{
+		Name:          "New flow",
+		Description:   "desc",
+		MailingListID: ptr("ml_1"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/workflows" {
+		t.Errorf("path = %q, want /workflows", gotPath)
+	}
+	if gotBody["name"] != "New flow" || gotBody["description"] != "desc" || gotBody["mailingListId"] != "ml_1" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if wf.ID != "wf_new" || wf.Status != WorkflowStatusDraft {
+		t.Errorf("wf = %+v", wf)
+	}
+	if wf.WorkflowRevisionID != nil {
+		t.Errorf("WorkflowRevisionID = %v, want nil", wf.WorkflowRevisionID)
+	}
+}
+
+func TestUpdateWorkflow_NullRevision(t *testing.T) {
+	var gotBody map[string]any
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		tee := io.TeeReader(r.Body, buf)
+		json.NewDecoder(tee).Decode(&gotBody)
+		rawBody = buf.String()
+		if want := "/workflows/wf_1"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"id":"wf_1","status":"Draft","workflowRevisionId":"rev_2","name":"Renamed","mailingListId":null,"rootNodeId":"n","nodes":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	wf, err := client.UpdateWorkflow("wf_1", UpdateWorkflowPropertiesRequest{
+		ExpectedRevisionID: nil,
+		Name:               "Renamed",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rawBody, `"expectedRevisionId":null`) {
+		t.Errorf("body must send explicit null revision: %s", rawBody)
+	}
+	if _, ok := gotBody["expectedRevisionId"]; !ok {
+		t.Error("expectedRevisionId key missing from body")
+	}
+	if gotBody["name"] != "Renamed" {
+		t.Errorf("name = %v, want Renamed", gotBody["name"])
+	}
+	if _, ok := gotBody["description"]; ok {
+		t.Errorf("description should be omitted, body = %+v", gotBody)
+	}
+	if wf.Name != "Renamed" || wf.WorkflowRevisionID == nil || *wf.WorkflowRevisionID != "rev_2" {
+		t.Errorf("wf = %+v", wf)
+	}
+}
+
+func TestUpdateWorkflow_StaleRevision409(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`{"message":"Workflow revision is stale."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.UpdateWorkflow("wf_1", UpdateWorkflowPropertiesRequest{
+		ExpectedRevisionID: ptr("old_rev"),
+		Name:               "x",
+	})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		t.Errorf("StatusCode = %d, want 409", apiErr.StatusCode)
+	}
+	if apiErr.Message != "Workflow revision is stale." {
+		t.Errorf("Message = %q", apiErr.Message)
+	}
+}
+
+func TestChangeWorkflowMailingList_Preview(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		if want := "/workflows/wf_1/mailing-list"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"queuedContactsFound","mailingListId":"ml_2","queuedContactCount":7}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.ChangeWorkflowMailingList("wf_1", ChangeWorkflowMailingListRequest{
+		ExpectedRevisionID: ptr("rev_1"),
+		MailingListID:      ptr("ml_2"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["expectedRevisionId"] != "rev_1" || gotBody["mailingListId"] != "ml_2" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if _, ok := gotBody["dryRun"]; ok {
+		t.Errorf("dryRun should be omitted, body = %+v", gotBody)
+	}
+	if res.Status != WorkflowMutationStatusQueuedContactsFound {
+		t.Errorf("Status = %q, want queuedContactsFound", res.Status)
+	}
+	if res.QueuedContactCount != 7 {
+		t.Errorf("QueuedContactCount = %v, want 7", res.QueuedContactCount)
+	}
+	if res.WorkflowRevisionID != nil {
+		t.Errorf("WorkflowRevisionID = %v, want nil", res.WorkflowRevisionID)
+	}
+}
+
+func TestChangeWorkflowMailingList_NullClear(t *testing.T) {
+	var rawBody string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		tee := io.TeeReader(r.Body, buf)
+		json.NewDecoder(tee).Decode(&gotBody)
+		rawBody = buf.String()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"updated","mailingListId":null,"workflowRevisionId":"rev_3","queuedContactCount":0}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.ChangeWorkflowMailingList("wf_1", ChangeWorkflowMailingListRequest{
+		ExpectedRevisionID:  ptr("rev_2"),
+		MailingListID:       nil,
+		DryRun:              true,
+		QueuedContactPolicy: WorkflowQueuedContactPolicyDiscard,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rawBody, `"mailingListId":null`) {
+		t.Errorf("body must send explicit null mailingListId: %s", rawBody)
+	}
+	if gotBody["dryRun"] != true || gotBody["queuedContactPolicy"] != "discard" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if res.Status != WorkflowMutationStatusUpdated {
+		t.Errorf("Status = %q, want updated", res.Status)
+	}
+	if res.WorkflowRevisionID == nil || *res.WorkflowRevisionID != "rev_3" {
+		t.Errorf("WorkflowRevisionID = %v, want rev_3", res.WorkflowRevisionID)
+	}
+	if res.MailingListID != nil {
+		t.Errorf("MailingListID = %v, want nil", res.MailingListID)
+	}
+}
+
+func TestCreateWorkflowNode_Between(t *testing.T) {
+	var gotBody map[string]any
+	resp := `{
+		"node": {
+			"id": "node_new",
+			"typeName": "BranchNode",
+			"nextNodeIds": ["c1", "c2"],
+			"workflowRevisionId": "rev_5",
+			"createdChildNodes": [
+				{"id": "c1", "typeName": "AudienceFilter", "nextNodeIds": [], "appliesDownstream": false},
+				{"id": "c2", "typeName": "AudienceFilter", "nextNodeIds": [], "appliesDownstream": false}
+			]
+		},
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_5","mailingListId":null,"rootNodeId":"r","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		if want := "/workflows/wf_1/nodes"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.CreateWorkflowNode("wf_1", CreateWorkflowNodeRequest{
+		ExpectedRevisionID: ptr("rev_4"),
+		InsertMode:         WorkflowInsertModeBetween,
+		NodeTypeName:       CreateWorkflowNodeTypeBranchNode,
+		FromNodeID:         "node_a",
+		ToNodeID:           "node_b",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["insertMode"] != "between" || gotBody["fromNodeId"] != "node_a" || gotBody["toNodeId"] != "node_b" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if gotBody["nodeTypeName"] != "BranchNode" {
+		t.Errorf("nodeTypeName = %v", gotBody["nodeTypeName"])
+	}
+	if _, ok := gotBody["beforeNodeId"]; ok {
+		t.Errorf("beforeNodeId should be absent for between: %+v", gotBody)
+	}
+	if res.Node.TypeName != WorkflowNodeTypeBranchNode || res.Node.BranchNode == nil {
+		t.Errorf("node = %+v", res.Node)
+	}
+	if res.Node.WorkflowRevisionID != "rev_5" {
+		t.Errorf("node revision = %q, want rev_5", res.Node.WorkflowRevisionID)
+	}
+	if len(res.Node.CreatedChildNodes) != 2 {
+		t.Fatalf("len(CreatedChildNodes) = %d, want 2", len(res.Node.CreatedChildNodes))
+	}
+	if res.Node.CreatedChildNodes[0].TypeName != WorkflowNodeTypeAudienceFilter || res.Node.CreatedChildNodes[0].AudienceFilter == nil {
+		t.Errorf("child[0] = %+v", res.Node.CreatedChildNodes[0])
+	}
+	if res.Workflow.ID != "wf_1" {
+		t.Errorf("workflow.ID = %q", res.Workflow.ID)
+	}
+}
+
+func TestCreateWorkflowNode_Before_NullRevision(t *testing.T) {
+	var rawBody string
+	var gotBody map[string]any
+	resp := `{
+		"node": {"id":"node_new","typeName":"TimerAction","nextNodeIds":[],"amount":0,"unit":"m","workflowRevisionId":"rev_1"},
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_1","mailingListId":null,"rootNodeId":"r","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		tee := io.TeeReader(r.Body, buf)
+		json.NewDecoder(tee).Decode(&gotBody)
+		rawBody = buf.String()
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.CreateWorkflowNode("wf_1", CreateWorkflowNodeRequest{
+		ExpectedRevisionID: nil,
+		InsertMode:         WorkflowInsertModeBefore,
+		NodeTypeName:       CreateWorkflowNodeTypeTimerAction,
+		BeforeNodeID:       "node_target",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rawBody, `"expectedRevisionId":null`) {
+		t.Errorf("body must send explicit null revision: %s", rawBody)
+	}
+	if gotBody["insertMode"] != "before" || gotBody["beforeNodeId"] != "node_target" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if _, ok := gotBody["fromNodeId"]; ok {
+		t.Errorf("fromNodeId should be absent for before: %+v", gotBody)
+	}
+	if res.Node.TypeName != WorkflowNodeTypeTimerAction || res.Node.TimerAction == nil {
+		t.Errorf("node = %+v", res.Node)
+	}
+	if res.Node.TimerAction.Unit != WorkflowTimerUnitMinutes {
+		t.Errorf("unit = %q, want m", res.Node.TimerAction.Unit)
+	}
+}
+
+func TestUpdateWorkflowNode_Payloads(t *testing.T) {
+	tests := []struct {
+		name    string
+		payload UpdateWorkflowNodePayload
+		// wantSubstr are JSON fragments that must appear in the marshaled payload.
+		wantSubstr []string
+		// notSubstr are fragments that must NOT appear.
+		notSubstr []string
+	}{
+		{
+			name: "SignupTrigger has typeName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName:      WorkflowNodeTypeSignupTrigger,
+				SignupTrigger: &WorkflowSignupTriggerPayload{},
+			},
+			wantSubstr: []string{`"typeName":"SignupTrigger"`},
+		},
+		{
+			name: "EventTrigger with null eventName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName:     WorkflowNodeTypeEventTrigger,
+				EventTrigger: &WorkflowEventTriggerPayload{EventName: nil, EventPatternID: ptr("ep_1"), ReEligible: ptr(true)},
+			},
+			wantSubstr: []string{`"typeName":"EventTrigger"`, `"eventPatternId":"ep_1"`, `"reEligible":true`},
+		},
+		{
+			name: "ContactPropertyTrigger with query",
+			payload: UpdateWorkflowNodePayload{
+				TypeName: WorkflowNodeTypeContactPropertyTrigger,
+				ContactPropertyTrigger: &WorkflowContactPropertyTriggerPayload{
+					ContactPropertyQuery: &WorkflowContactPropertyQuery{
+						Key: "plan",
+						Is:  WorkflowContactPropertyComparison{Value: WorkflowContactPropertyValue{String: ptr("pro")}, Operator: "equal"},
+					},
+				},
+			},
+			wantSubstr: []string{`"typeName":"ContactPropertyTrigger"`, `"key":"plan"`},
+		},
+		{
+			name: "AddToListTrigger",
+			payload: UpdateWorkflowNodePayload{
+				TypeName:         WorkflowNodeTypeAddToListTrigger,
+				AddToListTrigger: &WorkflowAddToListTriggerPayload{ReEligible: ptr(false)},
+			},
+			wantSubstr: []string{`"typeName":"AddToListTrigger"`, `"reEligible":false`},
+		},
+		{
+			name: "AudienceFilter has no typeName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName: WorkflowNodeTypeAudienceFilter,
+				AudienceFilter: &WorkflowAudienceFilterPayload{
+					AudienceSegmentID: ptr("seg_1"),
+					AppliesDownstream: ptr(true),
+				},
+			},
+			wantSubstr: []string{`"audienceSegmentId":"seg_1"`, `"appliesDownstream":true`},
+			notSubstr:  []string{`typeName`},
+		},
+		{
+			name: "TimerAction has no typeName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName:    WorkflowNodeTypeTimerAction,
+				TimerAction: &WorkflowTimerActionPayload{Amount: ptr(3.0), Unit: WorkflowTimerUnitDays},
+			},
+			wantSubstr: []string{`"amount":3`, `"unit":"d"`},
+			notSubstr:  []string{`typeName`},
+		},
+		{
+			name: "ExperimentBranch has no typeName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName:         WorkflowNodeTypeExperimentBranchNode,
+				ExperimentBranch: &WorkflowExperimentBranchPayload{SamplingRate: ptr(50.0)},
+			},
+			wantSubstr: []string{`"samplingRate":50`},
+			notSubstr:  []string{`typeName`},
+		},
+		{
+			name: "Variant has no typeName",
+			payload: UpdateWorkflowNodePayload{
+				TypeName: WorkflowNodeTypeVariantNode,
+				Variant:  &WorkflowVariantPayload{IsControl: ptr(true)},
+			},
+			wantSubstr: []string{`"isControl":true`},
+			notSubstr:  []string{`typeName`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := json.Marshal(tt.payload)
+			if err != nil {
+				t.Fatalf("Marshal: %v", err)
+			}
+			for _, want := range tt.wantSubstr {
+				if !strings.Contains(string(raw), want) {
+					t.Errorf("payload %s missing %q", raw, want)
+				}
+			}
+			for _, no := range tt.notSubstr {
+				if strings.Contains(string(raw), no) {
+					t.Errorf("payload %s must not contain %q", raw, no)
+				}
+			}
+		})
+	}
+}
+
+func TestUpdateWorkflowNode_RequestAndResponse(t *testing.T) {
+	var rawBody string
+	var gotBody map[string]any
+	resp := `{
+		"id": "node_t",
+		"typeName": "TimerAction",
+		"nextNodeIds": ["n2"],
+		"amount": 2,
+		"unit": "h",
+		"workflowRevisionId": "rev_9"
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		buf := new(strings.Builder)
+		tee := io.TeeReader(r.Body, buf)
+		json.NewDecoder(tee).Decode(&gotBody)
+		rawBody = buf.String()
+		if want := "/workflows/wf_1/nodes/node_t"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	node, err := client.UpdateWorkflowNode("wf_1", "node_t", UpdateWorkflowNodeRequest{
+		ExpectedRevisionID: ptr("rev_8"),
+		Payload: UpdateWorkflowNodePayload{
+			TypeName:    WorkflowNodeTypeTimerAction,
+			TimerAction: &WorkflowTimerActionPayload{Amount: ptr(2.0), Unit: WorkflowTimerUnitHours},
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["expectedRevisionId"] != "rev_8" {
+		t.Errorf("expectedRevisionId = %v", gotBody["expectedRevisionId"])
+	}
+	if !strings.Contains(rawBody, `"payload":{`) {
+		t.Errorf("payload missing from body: %s", rawBody)
+	}
+	if node.TypeName != WorkflowNodeTypeTimerAction || node.TimerAction == nil {
+		t.Errorf("node = %+v", node)
+	}
+	if node.TimerAction.Amount != 2 || node.TimerAction.Unit != WorkflowTimerUnitHours {
+		t.Errorf("timer = %+v", node.TimerAction)
+	}
+	if node.WorkflowRevisionID != "rev_9" {
+		t.Errorf("revision = %q, want rev_9", node.WorkflowRevisionID)
+	}
+}
+
+func TestAddWorkflowBranch(t *testing.T) {
+	var gotBody map[string]any
+	resp := `{
+		"node": {"id":"node_b","typeName":"BranchNode","nextNodeIds":["c1","c2","c3"],"workflowRevisionId":"rev_11"},
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_11","mailingListId":null,"rootNodeId":"r","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		if want := "/workflows/wf_1/nodes/node_b/add-branch"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.AddWorkflowBranch("wf_1", "node_b", AddWorkflowBranchRequest{
+		ExpectedRevisionID: ptr("rev_10"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["expectedRevisionId"] != "rev_10" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if res.Node.TypeName != WorkflowNodeTypeBranchNode || res.Node.BranchNode == nil {
+		t.Errorf("node = %+v", res.Node)
+	}
+	if len(res.Node.BranchNode.NextNodeIDs) != 3 {
+		t.Errorf("NextNodeIDs = %v", res.Node.BranchNode.NextNodeIDs)
+	}
+	if res.Node.WorkflowRevisionID != "rev_11" {
+		t.Errorf("revision = %q", res.Node.WorkflowRevisionID)
+	}
+	if res.Workflow.ID != "wf_1" {
+		t.Errorf("workflow = %+v", res.Workflow)
+	}
+}
+
+func TestDeleteWorkflowNode(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"deleted","nodeIds":["node_x"],"workflowRevisionId":"rev_20","queuedContactCount":0}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.DeleteWorkflowNode("wf_1", "node_x", DeleteWorkflowNodeRequest{
+		ExpectedRevisionID: ptr("rev_19"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+	if gotPath != "/workflows/wf_1/nodes/node_x" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["expectedRevisionId"] != "rev_19" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if res.Status != WorkflowMutationStatusDeleted {
+		t.Errorf("Status = %q, want deleted", res.Status)
+	}
+	if res.WorkflowRevisionID == nil || *res.WorkflowRevisionID != "rev_20" {
+		t.Errorf("WorkflowRevisionID = %v, want rev_20", res.WorkflowRevisionID)
+	}
+	if len(res.NodeIDs) != 1 || res.NodeIDs[0] != "node_x" {
+		t.Errorf("NodeIDs = %v", res.NodeIDs)
+	}
+}
+
+func TestDeleteWorkflowNodeRecursive_DryRun(t *testing.T) {
+	var gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"status":"dryRun","nodeIds":["node_x","node_y"],"queuedContactCount":4}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.DeleteWorkflowNodeRecursive("wf_1", "node_x", DeleteWorkflowNodeRequest{
+		ExpectedRevisionID:  ptr("rev_1"),
+		DryRun:              true,
+		QueuedContactPolicy: WorkflowQueuedContactPolicyFail,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotPath != "/workflows/wf_1/nodes/node_x/recursive" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["dryRun"] != true || gotBody["queuedContactPolicy"] != "fail" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if res.Status != WorkflowMutationStatusDryRun {
+		t.Errorf("Status = %q, want dryRun", res.Status)
+	}
+	if res.WorkflowRevisionID != nil {
+		t.Errorf("WorkflowRevisionID = %v, want nil", res.WorkflowRevisionID)
+	}
+	if len(res.NodeIDs) != 2 {
+		t.Errorf("NodeIDs = %v", res.NodeIDs)
+	}
+}
+
+func TestWorkflowMutationNode_UnmarshalVariants(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want string
+	}{
+		{"AddToListTrigger", `{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true}`, WorkflowNodeTypeAddToListTrigger},
+		{"AudienceFilter", `{"id":"n","typeName":"AudienceFilter","nextNodeIds":[],"appliesDownstream":true}`, WorkflowNodeTypeAudienceFilter},
+		{"Variant", `{"id":"n","typeName":"VariantNode","nextNodeIds":[],"isControl":true}`, WorkflowNodeTypeVariantNode},
+		{"ExperimentBranch", `{"id":"n","typeName":"ExperimentBranchNode","nextNodeIds":[],"samplingRate":25}`, WorkflowNodeTypeExperimentBranchNode},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var n WorkflowMutationNode
+			if err := json.Unmarshal([]byte(tt.body), &n); err != nil {
+				t.Fatalf("Unmarshal: %v", err)
+			}
+			if n.TypeName != tt.want {
+				t.Errorf("TypeName = %q, want %q", n.TypeName, tt.want)
+			}
+		})
+	}
+
+	var af WorkflowMutationNode
+	if err := json.Unmarshal([]byte(`{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true}`), &af); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if af.AddToListTrigger == nil || af.AddToListTrigger.MailingListID == nil || *af.AddToListTrigger.MailingListID != "ml_1" {
+		t.Errorf("AddToListTrigger = %+v", af.AddToListTrigger)
+	}
+}
+
 func TestWorkflowContactPropertyValue_RoundTrip(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -514,5 +1139,94 @@ func TestWorkflowContactPropertyValue_RoundTrip(t *testing.T) {
 				t.Fatalf("Unmarshal: %v", err)
 			}
 		})
+	}
+}
+
+func TestUpdateWorkflowNodePayload_NilVariantErrors(t *testing.T) {
+	// A selected config variant with a nil pointer must error, not silently
+	// emit "null" — symmetric with the trigger variants.
+	for _, p := range []UpdateWorkflowNodePayload{
+		{TypeName: WorkflowNodeTypeAudienceFilter},
+		{TypeName: WorkflowNodeTypeTimerAction},
+		{TypeName: WorkflowNodeTypeExperimentBranchNode},
+		{TypeName: WorkflowNodeTypeVariantNode},
+	} {
+		if _, err := json.Marshal(p); err == nil {
+			t.Errorf("%s: expected error marshaling nil variant, got none", p.TypeName)
+		}
+	}
+}
+
+func TestCreateWorkflow_NullMailingList(t *testing.T) {
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		rawBody = string(b)
+		w.Write([]byte(`{"id":"wf_1","status":"Draft","workflowRevisionId":"rev_1","mailingListId":null,"rootNodeId":"r","nodes":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("key", WithBaseURL(server.URL))
+	if _, err := client.CreateWorkflow(CreateWorkflowRequest{Name: "New flow"}); err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	if !strings.Contains(rawBody, `"mailingListId":null`) {
+		t.Errorf("body must send explicit null mailingListId when unset: %s", rawBody)
+	}
+}
+
+func TestWorkflowNodeWithRevision_MarshalKeepsRevision(t *testing.T) {
+	n := WorkflowNodeWithRevision{
+		WorkflowNode: WorkflowNode{
+			TypeName:    WorkflowNodeTypeTimerAction,
+			TimerAction: &TimerActionWorkflowNode{ID: "n1", WorkflowID: "wf_1", NextNodeIDs: []string{}, Amount: 5, Unit: WorkflowTimerUnitHours},
+		},
+		WorkflowRevisionID: ptr("rev_9"),
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_9"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"typeName":"TimerAction"`) {
+		t.Errorf("marshal dropped node fields: %s", raw)
+	}
+}
+
+func TestWorkflowMutationNodeWithRevision_MarshalKeepsRevision(t *testing.T) {
+	const in = `{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true,"workflowRevisionId":"rev_7"}`
+	var n WorkflowMutationNodeWithRevision
+	if err := json.Unmarshal([]byte(in), &n); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_7"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"typeName":"AddToListTrigger"`) {
+		t.Errorf("marshal dropped node fields: %s", raw)
+	}
+}
+
+func TestCreatedWorkflowNode_MarshalKeepsRevisionAndChildren(t *testing.T) {
+	const in = `{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true,"workflowRevisionId":"rev_7","createdChildNodes":[{"id":"c","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_2","reEligible":false}]}`
+	var n CreatedWorkflowNode
+	if err := json.Unmarshal([]byte(in), &n); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_7"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"createdChildNodes"`) {
+		t.Errorf("marshal dropped createdChildNodes: %s", raw)
 	}
 }
