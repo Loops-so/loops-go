@@ -1230,3 +1230,82 @@ func TestCreatedWorkflowNode_MarshalKeepsRevisionAndChildren(t *testing.T) {
 		t.Errorf("marshal dropped createdChildNodes: %s", raw)
 	}
 }
+
+func TestGetWorkflowNode_AddToListTrigger(t *testing.T) {
+	body := `{
+		"id": "node_a",
+		"workflowId": "wf_1",
+		"typeName": "AddToListTrigger",
+		"nextNodeIds": ["node_next"],
+		"mailingListId": "ml_1",
+		"reEligible": true
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	node, err := client.GetWorkflowNode("wf_1", "node_a")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if node.AddToListTrigger == nil {
+		t.Fatal("AddToListTrigger is nil")
+	}
+	if node.AddToListTrigger.MailingListID == nil || *node.AddToListTrigger.MailingListID != "ml_1" {
+		t.Errorf("MailingListID = %v, want ml_1", node.AddToListTrigger.MailingListID)
+	}
+}
+
+func TestGetWorkflowNode_SendEmailAction(t *testing.T) {
+	body := `{
+		"id": "node_s",
+		"workflowId": "wf_1",
+		"typeName": "SendEmailAction",
+		"nextNodeIds": ["node_next"],
+		"emailMessageId": "em_1",
+		"subject": "Welcome"
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	node, err := client.GetWorkflowNode("wf_1", "node_s")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if node.SendEmailAction == nil {
+		t.Fatal("SendEmailAction is nil")
+	}
+	if node.SendEmailAction.EmailMessageID != "em_1" {
+		t.Errorf("EmailMessageID = %q, want em_1", node.SendEmailAction.EmailMessageID)
+	}
+	if node.SendEmailAction.Subject != "Welcome" {
+		t.Errorf("Subject = %q, want Welcome", node.SendEmailAction.Subject)
+	}
+}
+
+func TestSimplifiedAddToListNode_DecodesMailingListID(t *testing.T) {
+	const in = `{"typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true}`
+	var n SimplifiedWorkflowNode
+	if err := json.Unmarshal([]byte(in), &n); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if n.AddToListTrigger == nil {
+		t.Fatal("AddToListTrigger is nil")
+	}
+	if n.AddToListTrigger.MailingListID == nil || *n.AddToListTrigger.MailingListID != "ml_1" {
+		t.Errorf("MailingListID = %v, want ml_1", n.AddToListTrigger.MailingListID)
+	}
+}
+
+func TestMarshalDiscriminated_TypedNilVariantErrors(t *testing.T) {
+	// A node with the discriminator set but the variant pointer nil must return
+	// an error, not panic on a nil-map write.
+	if _, err := json.Marshal(WorkflowNode{TypeName: WorkflowNodeTypeTimerAction}); err == nil {
+		t.Fatal("expected error marshaling a node with a nil variant, got none")
+	}
+}

@@ -62,7 +62,6 @@ const (
 type WorkflowTimerUnit string
 
 const (
-	WorkflowTimerUnitSeconds WorkflowTimerUnit = "s"
 	WorkflowTimerUnitMinutes WorkflowTimerUnit = "m"
 	WorkflowTimerUnitHours   WorkflowTimerUnit = "h"
 	WorkflowTimerUnitDays    WorkflowTimerUnit = "d"
@@ -197,9 +196,9 @@ type SimplifiedContactPropertyTriggerWorkflowNode struct {
 // SimplifiedAddToListTriggerWorkflowNode is the AddToListTrigger variant of
 // [SimplifiedWorkflowNode].
 type SimplifiedAddToListTriggerWorkflowNode struct {
-	NextNodeIDs []string `json:"nextNodeIds"`
-	MailingList string   `json:"mailingList,omitempty"`
-	ReEligible  *bool    `json:"reEligible,omitempty"`
+	NextNodeIDs   []string `json:"nextNodeIds"`
+	MailingListID *string  `json:"mailingListId"`
+	ReEligible    *bool    `json:"reEligible,omitempty"`
 }
 
 // SimplifiedBlankTriggerWorkflowNode is the BlankTrigger variant of
@@ -439,10 +438,11 @@ type ContactPropertyTriggerWorkflowNode struct {
 // AddToListTriggerWorkflowNode is the AddToListTrigger variant of
 // [WorkflowNode].
 type AddToListTriggerWorkflowNode struct {
-	ID          string   `json:"id"`
-	WorkflowID  string   `json:"workflowId"`
-	NextNodeIDs []string `json:"nextNodeIds"`
-	ReEligible  bool     `json:"reEligible"`
+	ID            string   `json:"id"`
+	WorkflowID    string   `json:"workflowId"`
+	NextNodeIDs   []string `json:"nextNodeIds"`
+	MailingListID *string  `json:"mailingListId"`
+	ReEligible    bool     `json:"reEligible"`
 }
 
 // BlankTriggerWorkflowNode is the BlankTrigger variant of [WorkflowNode].
@@ -471,14 +471,13 @@ type TimerActionWorkflowNode struct {
 	Unit        WorkflowTimerUnit `json:"unit"`
 }
 
-// SendEmailActionWorkflowNode is the SendEmailAction variant of
-// [WorkflowNode]. The full variant does not include emailMessageId (only the
-// simplified variant does).
+// SendEmailActionWorkflowNode is the SendEmailAction variant of [WorkflowNode].
 type SendEmailActionWorkflowNode struct {
-	ID          string   `json:"id"`
-	WorkflowID  string   `json:"workflowId"`
-	NextNodeIDs []string `json:"nextNodeIds"`
-	Subject     string   `json:"subject,omitempty"`
+	ID             string   `json:"id"`
+	WorkflowID     string   `json:"workflowId"`
+	NextNodeIDs    []string `json:"nextNodeIds"`
+	EmailMessageID string   `json:"emailMessageId"`
+	Subject        string   `json:"subject"`
 }
 
 // ExitActionWorkflowNode is the ExitAction variant of [WorkflowNode].
@@ -649,12 +648,15 @@ func marshalDiscriminated(typeName string, inner any) ([]byte, error) {
 	if typeName == "" {
 		return nil, fmt.Errorf("workflow node: typeName is empty")
 	}
-	if inner == nil {
-		return nil, fmt.Errorf("workflow node: %s variant is nil", typeName)
-	}
 	raw, err := json.Marshal(inner)
 	if err != nil {
 		return nil, err
+	}
+	// A typed-nil variant pointer is a non-nil interface but marshals to
+	// "null"; treat that (and an untyped nil) as a missing variant instead of
+	// panicking on the nil map below.
+	if string(raw) == "null" {
+		return nil, fmt.Errorf("workflow node: %s variant is nil", typeName)
 	}
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &fields); err != nil {
