@@ -665,6 +665,29 @@ func marshalDiscriminated(typeName string, inner any) ([]byte, error) {
 	return json.Marshal(fields)
 }
 
+// mergeMarshal marshals inner (which has its own MarshalJSON) into a JSON
+// object and overlays the extra fields. Used by the revision-bearing response
+// types, whose promoted embedded MarshalJSON would otherwise drop their own
+// fields.
+func mergeMarshal(inner any, extra map[string]any) ([]byte, error) {
+	raw, err := json.Marshal(inner)
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil, err
+	}
+	for k, v := range extra {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return nil, err
+		}
+		fields[k] = b
+	}
+	return json.Marshal(fields)
+}
+
 // ListWorkflows returns a single page of workflow summaries along with
 // pagination information. To iterate every page, use [Paginate].
 func (c *Client) ListWorkflows(params PaginationParams) ([]WorkflowSummary, *Pagination, error) {
@@ -758,8 +781,17 @@ func (n *WorkflowNodeWithRevision) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON encodes the node fields via the embedded [WorkflowNode] and adds
+// the revision token, which the promoted embedded MarshalJSON would otherwise
+// drop.
+func (n WorkflowNodeWithRevision) MarshalJSON() ([]byte, error) {
+	return mergeMarshal(n.WorkflowNode, map[string]any{"workflowRevisionId": n.WorkflowRevisionID})
+}
+
 // GetWorkflowNode returns the detailed data for a single workflow node along
-// with the current workflow revision token.
+// with the current workflow revision token. The result is a
+// [WorkflowNodeWithRevision]; the node fields remain accessible via the
+// embedded [WorkflowNode].
 func (c *Client) GetWorkflowNode(workflowID, nodeID string) (*WorkflowNodeWithRevision, error) {
 	req, err := c.newRequest(http.MethodGet, "/workflows/"+workflowID+"/nodes/"+nodeID, nil)
 	if err != nil {
@@ -1058,6 +1090,12 @@ func (n *WorkflowMutationNodeWithRevision) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON encodes the node fields via the embedded [WorkflowMutationNode]
+// and adds the revision token.
+func (n WorkflowMutationNodeWithRevision) MarshalJSON() ([]byte, error) {
+	return mergeMarshal(n.WorkflowMutationNode, map[string]any{"workflowRevisionId": n.WorkflowRevisionID})
+}
+
 // CreatedWorkflowNode is the node returned by [Client.CreateWorkflowNode]. It
 // is a [WorkflowMutationNodeWithRevision] (fields stay flat via the embedded
 // type) plus any default child nodes created alongside the requested node —
@@ -1084,12 +1122,22 @@ func (n *CreatedWorkflowNode) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON encodes the embedded [WorkflowMutationNodeWithRevision] and adds
+// the createdChildNodes list when present.
+func (n CreatedWorkflowNode) MarshalJSON() ([]byte, error) {
+	extra := map[string]any{}
+	if len(n.CreatedChildNodes) > 0 {
+		extra["createdChildNodes"] = n.CreatedChildNodes
+	}
+	return mergeMarshal(n.WorkflowMutationNodeWithRevision, extra)
+}
+
 // CreateWorkflowRequest is the request body for [Client.CreateWorkflow].
 // MailingListID is nullable.
 type CreateWorkflowRequest struct {
 	Name          string  `json:"name"`
 	Description   string  `json:"description,omitempty"`
-	MailingListID *string `json:"mailingListId,omitempty"`
+	MailingListID *string `json:"mailingListId"`
 }
 
 // CreateWorkflow creates a new workflow and returns it.
@@ -1427,12 +1475,24 @@ func (p UpdateWorkflowNodePayload) MarshalJSON() ([]byte, error) {
 	case WorkflowNodeTypeAddToListTrigger:
 		return marshalDiscriminated(p.TypeName, p.AddToListTrigger)
 	case WorkflowNodeTypeAudienceFilter:
+		if p.AudienceFilter == nil {
+			return nil, fmt.Errorf("workflow node payload: %s variant is nil", p.TypeName)
+		}
 		return json.Marshal(p.AudienceFilter)
 	case WorkflowNodeTypeTimerAction:
+		if p.TimerAction == nil {
+			return nil, fmt.Errorf("workflow node payload: %s variant is nil", p.TypeName)
+		}
 		return json.Marshal(p.TimerAction)
 	case WorkflowNodeTypeExperimentBranchNode:
+		if p.ExperimentBranch == nil {
+			return nil, fmt.Errorf("workflow node payload: %s variant is nil", p.TypeName)
+		}
 		return json.Marshal(p.ExperimentBranch)
 	case WorkflowNodeTypeVariantNode:
+		if p.Variant == nil {
+			return nil, fmt.Errorf("workflow node payload: %s variant is nil", p.TypeName)
+		}
 		return json.Marshal(p.Variant)
 	}
 	return nil, fmt.Errorf("workflow node payload: unknown typeName %q", p.TypeName)

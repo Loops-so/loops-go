@@ -1141,3 +1141,92 @@ func TestWorkflowContactPropertyValue_RoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestUpdateWorkflowNodePayload_NilVariantErrors(t *testing.T) {
+	// A selected config variant with a nil pointer must error, not silently
+	// emit "null" — symmetric with the trigger variants.
+	for _, p := range []UpdateWorkflowNodePayload{
+		{TypeName: WorkflowNodeTypeAudienceFilter},
+		{TypeName: WorkflowNodeTypeTimerAction},
+		{TypeName: WorkflowNodeTypeExperimentBranchNode},
+		{TypeName: WorkflowNodeTypeVariantNode},
+	} {
+		if _, err := json.Marshal(p); err == nil {
+			t.Errorf("%s: expected error marshaling nil variant, got none", p.TypeName)
+		}
+	}
+}
+
+func TestCreateWorkflow_NullMailingList(t *testing.T) {
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		rawBody = string(b)
+		w.Write([]byte(`{"id":"wf_1","status":"Draft","workflowRevisionId":"rev_1","mailingListId":null,"rootNodeId":"r","nodes":{}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("key", WithBaseURL(server.URL))
+	if _, err := client.CreateWorkflow(CreateWorkflowRequest{Name: "New flow"}); err != nil {
+		t.Fatalf("CreateWorkflow: %v", err)
+	}
+	if !strings.Contains(rawBody, `"mailingListId":null`) {
+		t.Errorf("body must send explicit null mailingListId when unset: %s", rawBody)
+	}
+}
+
+func TestWorkflowNodeWithRevision_MarshalKeepsRevision(t *testing.T) {
+	n := WorkflowNodeWithRevision{
+		WorkflowNode: WorkflowNode{
+			TypeName:    WorkflowNodeTypeTimerAction,
+			TimerAction: &TimerActionWorkflowNode{ID: "n1", WorkflowID: "wf_1", NextNodeIDs: []string{}, Amount: 5, Unit: WorkflowTimerUnitHours},
+		},
+		WorkflowRevisionID: ptr("rev_9"),
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_9"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"typeName":"TimerAction"`) {
+		t.Errorf("marshal dropped node fields: %s", raw)
+	}
+}
+
+func TestWorkflowMutationNodeWithRevision_MarshalKeepsRevision(t *testing.T) {
+	const in = `{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true,"workflowRevisionId":"rev_7"}`
+	var n WorkflowMutationNodeWithRevision
+	if err := json.Unmarshal([]byte(in), &n); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_7"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"typeName":"AddToListTrigger"`) {
+		t.Errorf("marshal dropped node fields: %s", raw)
+	}
+}
+
+func TestCreatedWorkflowNode_MarshalKeepsRevisionAndChildren(t *testing.T) {
+	const in = `{"id":"n","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_1","reEligible":true,"workflowRevisionId":"rev_7","createdChildNodes":[{"id":"c","typeName":"AddToListTrigger","nextNodeIds":[],"mailingListId":"ml_2","reEligible":false}]}`
+	var n CreatedWorkflowNode
+	if err := json.Unmarshal([]byte(in), &n); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	raw, err := json.Marshal(n)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"workflowRevisionId":"rev_7"`) {
+		t.Errorf("marshal dropped workflowRevisionId: %s", raw)
+	}
+	if !strings.Contains(string(raw), `"createdChildNodes"`) {
+		t.Errorf("marshal dropped createdChildNodes: %s", raw)
+	}
+}
