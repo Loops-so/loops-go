@@ -16,12 +16,14 @@ func TestGetAPIKey(t *testing.T) {
 		wantAPIErr    *APIError
 		wantErrMsg    string
 		wantTeam      string
+		wantSuccess   bool
 	}{
 		{
-			name:       "success",
-			statusCode: http.StatusOK,
-			body:       `{"teamName":"Acme"}`,
-			wantTeam:   "Acme",
+			name:        "success",
+			statusCode:  http.StatusOK,
+			body:        `{"success":true,"teamName":"Acme"}`,
+			wantTeam:    "Acme",
+			wantSuccess: true,
 		},
 		{
 			name:       "unauthorized",
@@ -83,6 +85,9 @@ func TestGetAPIKey(t *testing.T) {
 			}
 			if result.TeamName != tt.wantTeam {
 				t.Errorf("TeamName = %q, want %q", result.TeamName, tt.wantTeam)
+			}
+			if result.Success != tt.wantSuccess {
+				t.Errorf("Success = %v, want %v", result.Success, tt.wantSuccess)
 			}
 		})
 	}
