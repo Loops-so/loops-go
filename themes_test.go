@@ -1,7 +1,9 @@
 package loops
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -328,5 +330,181 @@ func TestListThemes_QueryParams(t *testing.T) {
 				t.Errorf("cursor = %q, want %q", gotCursor, tt.wantCursor)
 			}
 		})
+	}
+}
+
+func TestCreateTheme(t *testing.T) {
+	var gotPath, gotMethod, gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotMethod = r.Method
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(getThemeResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	result, err := client.CreateTheme(CreateThemeRequest{
+		Name:   "Brand",
+		Styles: &ThemeStyles{BackgroundColor: "#ffffff", TextBaseFontSize: 16},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodPost {
+		t.Errorf("method = %q, want POST", gotMethod)
+	}
+	if gotPath != "/themes" {
+		t.Errorf("path = %q, want /themes", gotPath)
+	}
+
+	var sent struct {
+		Name   string      `json:"name"`
+		Styles ThemeStyles `json:"styles"`
+	}
+	if err := json.Unmarshal([]byte(gotBody), &sent); err != nil {
+		t.Fatalf("body unmarshal: %v", err)
+	}
+	if sent.Name != "Brand" {
+		t.Errorf("body name = %q, want Brand", sent.Name)
+	}
+	if sent.Styles.BackgroundColor != "#ffffff" {
+		t.Errorf("body styles.backgroundColor = %q, want #ffffff", sent.Styles.BackgroundColor)
+	}
+	if result.ID != "thm_abc123" {
+		t.Errorf("ID = %q, want thm_abc123", result.ID)
+	}
+	if result.Name != "Brand" {
+		t.Errorf("Name = %q, want Brand", result.Name)
+	}
+}
+
+func TestCreateTheme_OmitsStyles(t *testing.T) {
+	var gotBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(getThemeResponse))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	if _, err := client.CreateTheme(CreateThemeRequest{Name: "Brand"}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(gotBody, `"name":"Brand"`) {
+		t.Errorf("body = %q", gotBody)
+	}
+	if strings.Contains(gotBody, `"styles"`) {
+		t.Errorf("body should omit nil styles: %q", gotBody)
+	}
+}
+
+func TestCreateTheme_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(`{"success":false,"message":"Name is required"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.CreateTheme(CreateThemeRequest{})
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusBadRequest {
+		t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusBadRequest)
+	}
+	if apiErr.Message != "Name is required" {
+		t.Errorf("Message = %q, want %q", apiErr.Message, "Name is required")
+	}
+}
+
+func TestUpdateTheme(t *testing.T) {
+	tests := []struct {
+		name         string
+		req          UpdateThemeRequest
+		wantContains []string
+		wantOmits    []string
+	}{
+		{
+			name:         "name only",
+			req:          UpdateThemeRequest{Name: "Renamed"},
+			wantContains: []string{`"name":"Renamed"`},
+			wantOmits:    []string{`"styles"`},
+		},
+		{
+			name:         "styles only",
+			req:          UpdateThemeRequest{Styles: &ThemeStyles{BackgroundColor: "#000000"}},
+			wantContains: []string{`"backgroundColor":"#000000"`},
+			wantOmits:    []string{`"name"`},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var gotPath, gotMethod, gotBody string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath = r.URL.Path
+				gotMethod = r.Method
+				b, _ := io.ReadAll(r.Body)
+				gotBody = string(b)
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte(getThemeResponse))
+			}))
+			defer server.Close()
+
+			client := NewClient("test-key", WithBaseURL(server.URL))
+			result, err := client.UpdateTheme("thm_abc123", tt.req)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if gotMethod != http.MethodPost {
+				t.Errorf("method = %q, want POST", gotMethod)
+			}
+			if gotPath != "/themes/thm_abc123" {
+				t.Errorf("path = %q, want /themes/thm_abc123", gotPath)
+			}
+			for _, want := range tt.wantContains {
+				if !strings.Contains(gotBody, want) {
+					t.Errorf("body = %q, want it to contain %q", gotBody, want)
+				}
+			}
+			for _, omit := range tt.wantOmits {
+				if strings.Contains(gotBody, omit) {
+					t.Errorf("body = %q, want it to omit %q", gotBody, omit)
+				}
+			}
+			if result.ID != "thm_abc123" {
+				t.Errorf("ID = %q, want thm_abc123", result.ID)
+			}
+		})
+	}
+}
+
+func TestUpdateTheme_Error(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"success":false,"message":"Theme not found"}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.UpdateTheme("thm_missing", UpdateThemeRequest{Name: "Renamed"})
+
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		t.Errorf("StatusCode = %d, want %d", apiErr.StatusCode, http.StatusNotFound)
+	}
+	if apiErr.Message != "Theme not found" {
+		t.Errorf("Message = %q, want %q", apiErr.Message, "Theme not found")
 	}
 }

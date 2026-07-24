@@ -1,6 +1,7 @@
 package loops
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -61,6 +62,81 @@ type Theme struct {
 	IsDefault bool        `json:"isDefault"`
 	CreatedAt string      `json:"createdAt"`
 	UpdatedAt string      `json:"updatedAt"`
+}
+
+// CreateThemeRequest is the request body for [Client.CreateTheme]. Name is
+// required; Styles is optional and defaults are applied server-side when
+// omitted.
+type CreateThemeRequest struct {
+	Name   string       `json:"name"`
+	Styles *ThemeStyles `json:"styles,omitempty"`
+}
+
+// UpdateThemeRequest is the request body for [Client.UpdateTheme]. At least
+// one field must be set.
+type UpdateThemeRequest struct {
+	Name   string       `json:"name,omitempty"`
+	Styles *ThemeStyles `json:"styles,omitempty"`
+}
+
+// CreateTheme creates a new theme.
+func (c *Client) CreateTheme(req CreateThemeRequest) (*Theme, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/themes", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result Theme
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// UpdateTheme updates the theme identified by id.
+func (c *Client) UpdateTheme(id string, req UpdateThemeRequest) (*Theme, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/themes/"+id, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result Theme
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
 }
 
 // GetTheme returns the theme identified by id.
