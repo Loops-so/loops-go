@@ -1,6 +1,7 @@
 package loops
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -13,6 +14,89 @@ type Component struct {
 	ID   string `json:"id"`
 	Name string `json:"name"`
 	LMX  string `json:"lmx"`
+}
+
+// CreateComponentRequest is the request body for [Client.CreateComponent].
+// Both fields are required.
+type CreateComponentRequest struct {
+	Name string `json:"name"`
+	LMX  string `json:"lmx"`
+}
+
+// UpdateComponentRequest is the request body for [Client.UpdateComponent].
+// At least one field must be set.
+type UpdateComponentRequest struct {
+	Name string `json:"name,omitempty"`
+	LMX  string `json:"lmx,omitempty"`
+}
+
+// UpdateComponentResult is the result of [Client.UpdateComponent]. It embeds
+// the updated [Component] and adds AffectedEmailCount, the number of emails
+// using this component that were updated by the body change (0 when only the
+// name changed).
+type UpdateComponentResult struct {
+	Component
+	AffectedEmailCount int `json:"affectedEmailCount"`
+}
+
+// CreateComponent creates a new component.
+func (c *Client) CreateComponent(req CreateComponentRequest) (*Component, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/components", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result Component
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// UpdateComponent updates the component identified by id.
+func (c *Client) UpdateComponent(id string, req UpdateComponentRequest) (*UpdateComponentResult, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/components/"+id, bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result UpdateComponentResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
 }
 
 // GetComponent returns the component identified by id.
