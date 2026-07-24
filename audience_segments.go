@@ -1,6 +1,7 @@
 package loops
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -198,6 +199,45 @@ func (c *Client) GetAudienceSegment(id string) (*AudienceSegment, error) {
 	}
 
 	resp, err := c.do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result AudienceSegment
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
+}
+
+// CreateAudienceSegmentRequest is the body for [Client.CreateAudienceSegment].
+// Name must be unique within the team; Filter must have at least one
+// condition.
+type CreateAudienceSegmentRequest struct {
+	Name        string         `json:"name"`
+	Description string         `json:"description,omitempty"`
+	Filter      AudienceFilter `json:"filter"`
+}
+
+// CreateAudienceSegment creates a new audience segment and returns it.
+func (c *Client) CreateAudienceSegment(req CreateAudienceSegmentRequest) (*AudienceSegment, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/audience-segments", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
 	if err != nil {
 		return nil, err
 	}

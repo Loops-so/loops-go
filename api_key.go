@@ -9,6 +9,7 @@ import (
 // APIKeyResponse is returned by [Client.GetAPIKey] and identifies the team
 // the API key belongs to.
 type APIKeyResponse struct {
+	Success  bool   `json:"success"`
 	TeamName string `json:"teamName"`
 }
 
