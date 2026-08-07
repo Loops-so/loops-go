@@ -658,6 +658,9 @@ func TestChangeWorkflowMailingList_Preview(t *testing.T) {
 	if res.WorkflowRevisionID != nil {
 		t.Errorf("WorkflowRevisionID = %v, want nil", res.WorkflowRevisionID)
 	}
+	if res.Workflow != nil {
+		t.Errorf("Workflow = %+v, want nil on queuedContactsFound", res.Workflow)
+	}
 }
 
 func TestChangeWorkflowMailingList_NullClear(t *testing.T) {
@@ -669,7 +672,7 @@ func TestChangeWorkflowMailingList_NullClear(t *testing.T) {
 		json.NewDecoder(tee).Decode(&gotBody)
 		rawBody = buf.String()
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"updated","mailingListId":null,"workflowRevisionId":"rev_3","queuedContactCount":0}`))
+		w.Write([]byte(`{"status":"updated","mailingListId":null,"workflowRevisionId":"rev_3","queuedContactCount":0,"workflow":{"id":"wf_1","status":"Draft","workflowRevisionId":"rev_3","mailingListId":null,"rootNodeId":"r","nodes":{}}}`))
 	}))
 	defer server.Close()
 
@@ -697,6 +700,9 @@ func TestChangeWorkflowMailingList_NullClear(t *testing.T) {
 	}
 	if res.MailingListID != nil {
 		t.Errorf("MailingListID = %v, want nil", res.MailingListID)
+	}
+	if res.Workflow == nil || res.Workflow.ID != "wf_1" {
+		t.Errorf("Workflow = %+v, want id wf_1", res.Workflow)
 	}
 }
 
@@ -803,6 +809,124 @@ func TestCreateWorkflowNode_Before_NullRevision(t *testing.T) {
 	}
 	if res.Node.TimerAction.Unit != WorkflowTimerUnitMinutes {
 		t.Errorf("unit = %q, want m", res.Node.TimerAction.Unit)
+	}
+}
+
+func TestCreateWorkflowNode_Before_ToNodeID(t *testing.T) {
+	var gotBody map[string]any
+	resp := `{
+		"node": {"id":"node_new","typeName":"TimerAction","nextNodeIds":[],"amount":0,"unit":"m","workflowRevisionId":"rev_1"},
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_1","mailingListId":null,"rootNodeId":"r","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	_, err := client.CreateWorkflowNode("wf_1", CreateWorkflowNodeRequest{
+		ExpectedRevisionID: ptr("rev_0"),
+		InsertMode:         WorkflowInsertModeBefore,
+		NodeTypeName:       CreateWorkflowNodeTypeTimerAction,
+		ToNodeID:           "node_target",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["insertMode"] != "before" || gotBody["toNodeId"] != "node_target" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if _, ok := gotBody["beforeNodeId"]; ok {
+		t.Errorf("beforeNodeId should be absent when ToNodeID is set: %+v", gotBody)
+	}
+	if _, ok := gotBody["fromNodeId"]; ok {
+		t.Errorf("fromNodeId should be absent for before: %+v", gotBody)
+	}
+}
+
+func TestCreateWorkflowNode_After(t *testing.T) {
+	var gotBody map[string]any
+	resp := `{
+		"node": {"id":"node_new","typeName":"TimerAction","nextNodeIds":[],"amount":0,"unit":"m","workflowRevisionId":"rev_1"},
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_1","mailingListId":null,"rootNodeId":"r","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		if want := "/workflows/wf_1/nodes"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.CreateWorkflowNode("wf_1", CreateWorkflowNodeRequest{
+		ExpectedRevisionID: ptr("rev_0"),
+		InsertMode:         WorkflowInsertModeAfter,
+		NodeTypeName:       CreateWorkflowNodeTypeTimerAction,
+		FromNodeID:         "node_a",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["insertMode"] != "after" || gotBody["fromNodeId"] != "node_a" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if _, ok := gotBody["toNodeId"]; ok {
+		t.Errorf("toNodeId should be absent for after: %+v", gotBody)
+	}
+	if _, ok := gotBody["beforeNodeId"]; ok {
+		t.Errorf("beforeNodeId should be absent for after: %+v", gotBody)
+	}
+	if res.Node.TypeName != WorkflowNodeTypeTimerAction {
+		t.Errorf("node = %+v", res.Node)
+	}
+}
+
+func TestRerouteNodeConnection(t *testing.T) {
+	var gotBody map[string]any
+	resp := `{
+		"id": "node_a",
+		"typeName": "SignupTrigger",
+		"nextNodeIds": ["node_c"],
+		"workflowRevisionId": "rev_31",
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_31","mailingListId":null,"rootNodeId":"node_a","nodes":{}}
+	}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		if r.Method != http.MethodPost {
+			t.Errorf("method = %q, want POST", r.Method)
+		}
+		if want := "/workflows/wf_1/nodes/node_a/reroute"; r.URL.Path != want {
+			t.Errorf("path = %q, want %q", r.URL.Path, want)
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	res, err := client.RerouteNodeConnection("wf_1", "node_a", RerouteNodeConnectionRequest{
+		ExpectedRevisionID: ptr("rev_30"),
+		NewTargetNodeID:    "node_c",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["expectedRevisionId"] != "rev_30" || gotBody["newTargetNodeId"] != "node_c" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if res.TypeName != WorkflowNodeTypeSignupTrigger {
+		t.Errorf("node typeName = %q", res.TypeName)
+	}
+	if res.WorkflowRevisionID != "rev_31" {
+		t.Errorf("node revision = %q, want rev_31", res.WorkflowRevisionID)
+	}
+	if res.Workflow.ID != "wf_1" {
+		t.Errorf("workflow = %+v", res.Workflow)
 	}
 }
 
@@ -922,7 +1046,8 @@ func TestUpdateWorkflowNode_RequestAndResponse(t *testing.T) {
 		"nextNodeIds": ["n2"],
 		"amount": 2,
 		"unit": "h",
-		"workflowRevisionId": "rev_9"
+		"workflowRevisionId": "rev_9",
+		"workflow": {"id":"wf_1","status":"Draft","workflowRevisionId":"rev_9","mailingListId":null,"rootNodeId":"r","nodes":{}}
 	}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := new(strings.Builder)
@@ -962,6 +1087,12 @@ func TestUpdateWorkflowNode_RequestAndResponse(t *testing.T) {
 	}
 	if node.WorkflowRevisionID != "rev_9" {
 		t.Errorf("revision = %q, want rev_9", node.WorkflowRevisionID)
+	}
+	if node.Workflow.ID != "wf_1" {
+		t.Errorf("workflow = %+v", node.Workflow)
+	}
+	if node.Workflow.WorkflowRevisionID == nil || *node.Workflow.WorkflowRevisionID != "rev_9" {
+		t.Errorf("workflow revision = %v, want rev_9", node.Workflow.WorkflowRevisionID)
 	}
 }
 
@@ -1013,7 +1144,7 @@ func TestDeleteWorkflowNode(t *testing.T) {
 		gotPath = r.URL.Path
 		gotBody = decodeBody(t, r)
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"deleted","nodeIds":["node_x"],"workflowRevisionId":"rev_20","queuedContactCount":0}`))
+		w.Write([]byte(`{"status":"deleted","nodeIds":["node_x"],"workflowRevisionId":"rev_20","queuedContactCount":0,"workflow":{"id":"wf_1","status":"Draft","workflowRevisionId":"rev_20","mailingListId":null,"rootNodeId":"r","nodes":{}}}`))
 	}))
 	defer server.Close()
 
@@ -1041,6 +1172,9 @@ func TestDeleteWorkflowNode(t *testing.T) {
 	}
 	if len(res.NodeIDs) != 1 || res.NodeIDs[0] != "node_x" {
 		t.Errorf("NodeIDs = %v", res.NodeIDs)
+	}
+	if res.Workflow == nil || res.Workflow.ID != "wf_1" {
+		t.Errorf("Workflow = %+v, want id wf_1", res.Workflow)
 	}
 }
 
@@ -1075,6 +1209,9 @@ func TestDeleteWorkflowNodeRecursive_DryRun(t *testing.T) {
 	}
 	if res.WorkflowRevisionID != nil {
 		t.Errorf("WorkflowRevisionID = %v, want nil", res.WorkflowRevisionID)
+	}
+	if res.Workflow != nil {
+		t.Errorf("Workflow = %+v, want nil on dry run", res.Workflow)
 	}
 	if len(res.NodeIDs) != 2 {
 		t.Errorf("NodeIDs = %v", res.NodeIDs)

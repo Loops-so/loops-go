@@ -1255,13 +1255,14 @@ type ChangeWorkflowMailingListRequest struct {
 
 // ChangeWorkflowMailingListResponse is returned by
 // [Client.ChangeWorkflowMailingList]. Status is one of the
-// WorkflowMutationStatus* values. WorkflowRevisionID is set only when Status
-// is "updated".
+// WorkflowMutationStatus* values. WorkflowRevisionID and Workflow are set only
+// when Status is "updated".
 type ChangeWorkflowMailingListResponse struct {
-	Status             string  `json:"status"`
-	MailingListID      *string `json:"mailingListId"`
-	WorkflowRevisionID *string `json:"workflowRevisionId,omitempty"`
-	QueuedContactCount float64 `json:"queuedContactCount"`
+	Status             string              `json:"status"`
+	MailingListID      *string             `json:"mailingListId"`
+	WorkflowRevisionID *string             `json:"workflowRevisionId,omitempty"`
+	QueuedContactCount float64             `json:"queuedContactCount"`
+	Workflow           *SimplifiedWorkflow `json:"workflow,omitempty"`
 }
 
 // ChangeWorkflowMailingList changes the mailing list of the workflow
@@ -1312,6 +1313,7 @@ func (c *Client) ChangeWorkflowMailingList(id string, req ChangeWorkflowMailingL
 const (
 	WorkflowInsertModeBetween = "between"
 	WorkflowInsertModeBefore  = "before"
+	WorkflowInsertModeAfter   = "after"
 )
 
 // Node types that can be created via [Client.CreateWorkflowNode]. Trigger and
@@ -1329,8 +1331,11 @@ const (
 // InsertMode selects the placement:
 //   - "between" inserts between FromNodeID and ToNodeID (FromNodeID must
 //     currently point to ToNodeID); both are required.
-//   - "before" inserts before BeforeNodeID, which must have an incoming parent
-//     and cannot be a trigger node.
+//   - "before" inserts before ToNodeID, which must have an incoming parent and
+//     cannot be a trigger node.
+//   - "after" inserts after FromNodeID, valid only when FromNodeID has exactly
+//     one outgoing node (not zero, not multiple, and not an exit node). Use
+//     "between" with an explicit ToNodeID when the source has multiple outputs.
 //
 // ExpectedRevisionID is required and always sent (as JSON null when nil).
 // NodeTypeName is one of the CreateWorkflowNodeType* constants.
@@ -1340,7 +1345,10 @@ type CreateWorkflowNodeRequest struct {
 	NodeTypeName       string
 	FromNodeID         string
 	ToNodeID           string
-	BeforeNodeID       string
+
+	// Deprecated: the API now expects ToNodeID for "before" mode. Set ToNodeID
+	// instead; BeforeNodeID is only sent when ToNodeID is empty.
+	BeforeNodeID string
 }
 
 // CreateWorkflowNodeResponse is returned by [Client.CreateWorkflowNode].
@@ -1363,7 +1371,13 @@ func (c *Client) CreateWorkflowNode(id string, req CreateWorkflowNodeRequest) (*
 		body["fromNodeId"] = req.FromNodeID
 		body["toNodeId"] = req.ToNodeID
 	case WorkflowInsertModeBefore:
-		body["beforeNodeId"] = req.BeforeNodeID
+		if req.ToNodeID != "" {
+			body["toNodeId"] = req.ToNodeID
+		} else {
+			body["beforeNodeId"] = req.BeforeNodeID
+		}
+	case WorkflowInsertModeAfter:
+		body["fromNodeId"] = req.FromNodeID
 	}
 
 	b, err := json.Marshal(body)
@@ -1508,8 +1522,33 @@ type UpdateWorkflowNodeRequest struct {
 }
 
 // UpdateWorkflowNodeResponse is the updated node returned by
-// [Client.UpdateWorkflowNode], with the latest workflow revision token.
-type UpdateWorkflowNodeResponse = WorkflowMutationNodeWithRevision
+// [Client.UpdateWorkflowNode] (its fields stay flat via the embedded type)
+// plus the latest simplified workflow.
+type UpdateWorkflowNodeResponse struct {
+	WorkflowMutationNodeWithRevision
+	Workflow SimplifiedWorkflow `json:"workflow"`
+}
+
+// UnmarshalJSON decodes the node and revision via the embedded type and then
+// the latest workflow.
+func (n *UpdateWorkflowNodeResponse) UnmarshalJSON(data []byte) error {
+	if err := n.WorkflowMutationNodeWithRevision.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	var extra struct {
+		Workflow SimplifiedWorkflow `json:"workflow"`
+	}
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	n.Workflow = extra.Workflow
+	return nil
+}
+
+// MarshalJSON encodes the embedded node and revision and adds the workflow.
+func (n UpdateWorkflowNodeResponse) MarshalJSON() ([]byte, error) {
+	return mergeMarshal(n.WorkflowMutationNodeWithRevision, map[string]any{"workflow": n.Workflow})
+}
 
 // UpdateWorkflowNode applies req.Payload to the node identified by
 // workflowID/nodeID and returns the updated node.
@@ -1606,13 +1645,14 @@ type DeleteWorkflowNodeRequest struct {
 
 // DeleteWorkflowNodeResponse is returned by [Client.DeleteWorkflowNode] and
 // [Client.DeleteWorkflowNodeRecursive]. Status is one of the
-// WorkflowMutationStatus* values. WorkflowRevisionID is set only when Status
-// is "deleted".
+// WorkflowMutationStatus* values. WorkflowRevisionID and Workflow are set only
+// when Status is "deleted".
 type DeleteWorkflowNodeResponse struct {
-	Status             string   `json:"status"`
-	NodeIDs            []string `json:"nodeIds"`
-	WorkflowRevisionID *string  `json:"workflowRevisionId,omitempty"`
-	QueuedContactCount float64  `json:"queuedContactCount"`
+	Status             string              `json:"status"`
+	NodeIDs            []string            `json:"nodeIds"`
+	WorkflowRevisionID *string             `json:"workflowRevisionId,omitempty"`
+	QueuedContactCount float64             `json:"queuedContactCount"`
+	Workflow           *SimplifiedWorkflow `json:"workflow,omitempty"`
 }
 
 func (c *Client) deleteWorkflowNode(path string, req DeleteWorkflowNodeRequest) (*DeleteWorkflowNodeResponse, error) {
@@ -1666,4 +1706,80 @@ func (c *Client) DeleteWorkflowNode(workflowID, nodeID string, req DeleteWorkflo
 // [Client.DeleteWorkflowNode].
 func (c *Client) DeleteWorkflowNodeRecursive(workflowID, nodeID string, req DeleteWorkflowNodeRequest) (*DeleteWorkflowNodeResponse, error) {
 	return c.deleteWorkflowNode("/workflows/"+workflowID+"/nodes/"+nodeID+"/recursive", req)
+}
+
+// RerouteNodeConnectionRequest is the request body for
+// [Client.RerouteNodeConnection]. ExpectedRevisionID is required and always
+// sent (as JSON null when nil). NewTargetNodeID is the valid node that should
+// receive the source node's outgoing connection.
+type RerouteNodeConnectionRequest struct {
+	ExpectedRevisionID *string
+	NewTargetNodeID    string
+}
+
+// RerouteNodeConnectionResponse is the updated source node returned by
+// [Client.RerouteNodeConnection] (its fields stay flat via the embedded type)
+// plus the latest simplified workflow.
+type RerouteNodeConnectionResponse struct {
+	WorkflowMutationNodeWithRevision
+	Workflow SimplifiedWorkflow `json:"workflow"`
+}
+
+// UnmarshalJSON decodes the node and revision via the embedded type and then
+// the latest workflow.
+func (n *RerouteNodeConnectionResponse) UnmarshalJSON(data []byte) error {
+	if err := n.WorkflowMutationNodeWithRevision.UnmarshalJSON(data); err != nil {
+		return err
+	}
+	var extra struct {
+		Workflow SimplifiedWorkflow `json:"workflow"`
+	}
+	if err := json.Unmarshal(data, &extra); err != nil {
+		return err
+	}
+	n.Workflow = extra.Workflow
+	return nil
+}
+
+// MarshalJSON encodes the embedded node and revision and adds the workflow.
+func (n RerouteNodeConnectionResponse) MarshalJSON() ([]byte, error) {
+	return mergeMarshal(n.WorkflowMutationNodeWithRevision, map[string]any{"workflow": n.Workflow})
+}
+
+// RerouteNodeConnection moves the single outgoing connection of the source node
+// identified by workflowID/nodeID to req.NewTargetNodeID, returning the updated
+// source node and the latest workflow. The source node must have exactly one
+// outgoing connection; branch and experiment branch nodes cannot be rerouted.
+func (c *Client) RerouteNodeConnection(workflowID, nodeID string, req RerouteNodeConnectionRequest) (*RerouteNodeConnectionResponse, error) {
+	body := map[string]any{
+		"expectedRevisionId": req.ExpectedRevisionID,
+		"newTargetNodeId":    req.NewTargetNodeID,
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodPost, "/workflows/"+workflowID+"/nodes/"+nodeID+"/reroute", bytes.NewReader(b))
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, errorFromResponse(resp)
+	}
+
+	var result RerouteNodeConnectionResponse
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return &result, nil
 }
