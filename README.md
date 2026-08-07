@@ -154,6 +154,46 @@ if err != nil {
 defer resp.Body.Close()
 ```
 
+## Webhooks
+
+Loops delivers signed events to your configured endpoint. `VerifyWebhook` checks the `webhook-id`, `webhook-timestamp`, and `webhook-signature` headers against your dashboard signing secret (the `whsec_…` value), and `ParseWebhook` decodes the raw body into a typed event.
+
+Read the raw request body **before** any JSON decoding — the signature is computed over the exact bytes.
+
+```go
+func handler(w http.ResponseWriter, r *http.Request) {
+    body, err := io.ReadAll(r.Body)
+    if err != nil {
+        http.Error(w, "bad request", http.StatusBadRequest)
+        return
+    }
+
+    if err := loops.VerifyWebhook(os.Getenv("LOOPS_SIGNING_SECRET"), r.Header, body); err != nil {
+        http.Error(w, "invalid signature", http.StatusUnauthorized)
+        return
+    }
+
+    event, err := loops.ParseWebhook(body)
+    if err != nil {
+        http.Error(w, "bad payload", http.StatusBadRequest)
+        return
+    }
+
+    switch e := event.(type) {
+    case *loops.WebhookContactCreatedPayload:
+        log.Printf("contact created: %s", e.Contact.Email)
+    case *loops.WebhookEmailDeliveredPayload:
+        log.Printf("delivered to %s (%s)", e.ContactIdentity.Email, e.SourceType)
+    default:
+        log.Printf("unhandled event: %s", event.Type())
+    }
+
+    w.WriteHeader(http.StatusOK)
+}
+```
+
+Pass `loops.WithWebhookTimestampTolerance(5*time.Minute)` to `VerifyWebhook` to also reject stale deliveries (replay protection); it is off by default.
+
 ## License
 
 MIT
