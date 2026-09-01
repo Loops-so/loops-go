@@ -23,6 +23,7 @@ const listCampaignsResponse = `{
 	"data": [
 		{
 			"id": "cmp_1",
+			"url": "https://app.loops.so/campaigns/cmp_1",
 			"emailMessageId": "em_1",
 			"name": "Spring Launch",
 			"subject": "New arrivals",
@@ -45,6 +46,7 @@ const listCampaignsResponse = `{
 const createCampaignResponse = `{
 	"success": true,
 	"id": "cmp_new",
+	"url": "https://app.loops.so/campaigns/cmp_new",
 	"name": "Spring Launch",
 	"status": "Draft",
 	"createdAt": "2026-04-20T10:00:00Z",
@@ -120,6 +122,9 @@ func TestCreateCampaign(t *testing.T) {
 			}
 			if resp.ID != "cmp_new" {
 				t.Errorf("ID = %q, want cmp_new", resp.ID)
+			}
+			if resp.URL != "https://app.loops.so/campaigns/cmp_new" {
+				t.Errorf("URL = %q", resp.URL)
 			}
 			if resp.EmailMessageID == nil || *resp.EmailMessageID != "em_new" {
 				t.Errorf("EmailMessageID = %v, want em_new", resp.EmailMessageID)
@@ -288,6 +293,7 @@ func TestGetCampaign(t *testing.T) {
 	body := `{
 		"success": true,
 		"id": "cmp_abc123",
+		"url": "https://app.loops.so/campaigns/cmp_abc123",
 		"emailMessageId": "em_abc123",
 		"name": "Spring Launch",
 		"status": "Draft",
@@ -379,6 +385,9 @@ func TestGetCampaign(t *testing.T) {
 			}
 			if result.ID != tt.wantID {
 				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
+			}
+			if result.URL != "https://app.loops.so/campaigns/cmp_abc123" {
+				t.Errorf("URL = %q", result.URL)
 			}
 			if result.EmailMessageID == nil || *result.EmailMessageID != "em_abc123" {
 				t.Errorf("EmailMessageID = %v, want em_abc123", result.EmailMessageID)
@@ -491,6 +500,9 @@ func TestListCampaigns_ResponseData(t *testing.T) {
 
 	if campaigns[0].ID != "cmp_1" {
 		t.Errorf("ID = %q, want cmp_1", campaigns[0].ID)
+	}
+	if campaigns[0].URL != "https://app.loops.so/campaigns/cmp_1" {
+		t.Errorf("URL = %q", campaigns[0].URL)
 	}
 	if campaigns[0].EmailMessageID == nil || *campaigns[0].EmailMessageID != "em_1" {
 		t.Errorf("EmailMessageID = %v, want em_1", campaigns[0].EmailMessageID)

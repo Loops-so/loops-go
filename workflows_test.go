@@ -22,12 +22,14 @@ const listWorkflowsResponse = `{
 	"data": [
 		{
 			"id": "wf_1",
+			"url": "https://app.loops.so/workflows/wf_1",
 			"name": "Onboarding",
 			"createdAt": "2026-05-01T10:00:00Z",
 			"updatedAt": "2026-05-02T10:00:00Z"
 		},
 		{
 			"id": "wf_2",
+			"url": "https://app.loops.so/workflows/wf_2",
 			"name": "Win-back",
 			"createdAt": "2026-04-01T10:00:00Z",
 			"updatedAt": "2026-04-05T10:00:00Z"
@@ -37,6 +39,7 @@ const listWorkflowsResponse = `{
 
 const getSimplifiedWorkflowResponse = `{
 	"id": "wf_1",
+	"url": "https://app.loops.so/workflows/wf_1",
 	"status": "Draft",
 	"workflowRevisionId": "rev_1",
 	"name": "Onboarding",
@@ -86,6 +89,9 @@ func TestListWorkflows(t *testing.T) {
 	}
 	if workflows[0].ID != "wf_1" || workflows[0].Name != "Onboarding" {
 		t.Errorf("workflows[0] = %+v", workflows[0])
+	}
+	if workflows[0].URL != "https://app.loops.so/workflows/wf_1" {
+		t.Errorf("workflows[0].URL = %q", workflows[0].URL)
 	}
 }
 
@@ -188,6 +194,9 @@ func TestGetWorkflow(t *testing.T) {
 			}
 			if want := "/workflows/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
+			}
+			if result.URL != "https://app.loops.so/workflows/wf_1" {
+				t.Errorf("URL = %q", result.URL)
 			}
 			if result.ID != "wf_1" {
 				t.Errorf("ID = %q, want wf_1", result.ID)

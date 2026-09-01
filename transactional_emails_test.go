@@ -12,6 +12,7 @@ import (
 
 const createTransactionalResponse = `{
 	"id": "tx_new",
+	"url": "https://app.loops.so/transactional/tx_new",
 	"name": "Welcome email",
 	"draftEmailMessageId": "em_draft",
 	"draftEmailMessageContentRevisionId": "rev_1",
@@ -95,6 +96,9 @@ func TestCreateTransactional(t *testing.T) {
 			if resp.ID != "tx_new" {
 				t.Errorf("ID = %q, want tx_new", resp.ID)
 			}
+			if resp.URL != "https://app.loops.so/transactional/tx_new" {
+				t.Errorf("URL = %q", resp.URL)
+			}
 			if resp.DraftEmailMessageID == nil || *resp.DraftEmailMessageID != "em_draft" {
 				t.Errorf("DraftEmailMessageID = %v, want em_draft", resp.DraftEmailMessageID)
 			}
@@ -162,6 +166,7 @@ func TestCreateTransactional_WithGroup(t *testing.T) {
 
 const getTransactionalResponse = `{
 	"id": "tx_abc123",
+	"url": "https://app.loops.so/transactional/tx_abc123",
 	"name": "Welcome email",
 	"draftEmailMessageId": "em_draft",
 	"publishedEmailMessageId": "em_published",
@@ -255,6 +260,9 @@ func TestGetTransactional(t *testing.T) {
 			}
 			if result.ID != tt.wantID {
 				t.Errorf("ID = %q, want %q", result.ID, tt.wantID)
+			}
+			if result.URL != "https://app.loops.so/transactional/tx_abc123" {
+				t.Errorf("URL = %q", result.URL)
 			}
 			if result.PublishedEmailMessageID == nil || *result.PublishedEmailMessageID != "em_published" {
 				t.Errorf("PublishedEmailMessageID = %v, want em_published", result.PublishedEmailMessageID)
@@ -528,6 +536,7 @@ const listTransactionalsResponse = `{
 	"data": [
 		{
 			"id": "tx_1",
+			"url": "https://app.loops.so/transactional/tx_1",
 			"name": "Welcome",
 			"draftEmailMessageId": "em_d1",
 			"publishedEmailMessageId": "em_p1",
@@ -645,6 +654,9 @@ func TestListTransactionals_ResponseData(t *testing.T) {
 
 	if items[0].ID != "tx_1" {
 		t.Errorf("ID = %q, want tx_1", items[0].ID)
+	}
+	if items[0].URL != "https://app.loops.so/transactional/tx_1" {
+		t.Errorf("URL = %q", items[0].URL)
 	}
 	if items[0].DraftEmailMessageID == nil || *items[0].DraftEmailMessageID != "em_d1" {
 		t.Errorf("DraftEmailMessageID = %v, want em_d1", items[0].DraftEmailMessageID)

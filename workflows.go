@@ -8,9 +8,11 @@ import (
 	"net/url"
 )
 
-// WorkflowSummary is an entry in the [Client.ListWorkflows] response.
+// WorkflowSummary is an entry in the [Client.ListWorkflows] response. URL is
+// the workflow's URL in the Loops app.
 type WorkflowSummary struct {
 	ID        string `json:"id"`
+	URL       string `json:"url"`
 	Name      string `json:"name"`
 	CreatedAt string `json:"createdAt"`
 	UpdatedAt string `json:"updatedAt"`
@@ -20,9 +22,11 @@ type WorkflowSummary struct {
 // node ID; entry shapes are discriminated by their TypeName. Status is one of
 // the WorkflowStatus* constants. WorkflowRevisionID is the current revision
 // token; pass it back as the expectedRevisionId on the next mutation (it may
-// be nil for workflows without a revision token yet).
+// be nil for workflows without a revision token yet). URL is the workflow's
+// URL in the Loops app.
 type SimplifiedWorkflow struct {
 	ID                 string                            `json:"id"`
+	URL                string                            `json:"url"`
 	Status             string                            `json:"status,omitempty"`
 	WorkflowRevisionID *string                           `json:"workflowRevisionId"`
 	Name               string                            `json:"name,omitempty"`
