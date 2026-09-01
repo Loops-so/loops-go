@@ -3,9 +3,11 @@ package loops
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 // WorkflowSummary is an entry in the [Client.ListWorkflows] response. URL is
@@ -1710,6 +1712,69 @@ func (c *Client) DeleteWorkflowNode(workflowID, nodeID string, req DeleteWorkflo
 // [Client.DeleteWorkflowNode].
 func (c *Client) DeleteWorkflowNodeRecursive(workflowID, nodeID string, req DeleteWorkflowNodeRequest) (*DeleteWorkflowNodeResponse, error) {
 	return c.deleteWorkflowNode("/workflows/"+workflowID+"/nodes/"+nodeID+"/recursive", req)
+}
+
+// ErrWorkflowDeleteConfirmationRequired is wrapped into the error returned by
+// [Client.DeleteWorkflow] when the workflow is sending or has queued contacts.
+// Retry with the same ExpectedRevisionID and ConfirmDelete set to true. The
+// underlying *[APIError] remains reachable with [errors.As].
+var ErrWorkflowDeleteConfirmationRequired = errors.New("loops: workflow deletion requires confirmation")
+
+// The API reports both a stale revision and a required confirmation as a 409
+// carrying only a message, so the two are told apart by this suffix.
+const workflowDeleteConfirmationSuffix = "Confirm deletion by sending a second request with confirmDelete: true."
+
+// DeleteWorkflowRequest is the request body for [Client.DeleteWorkflow].
+// ExpectedRevisionID is required and always sent (as JSON null when nil).
+// ConfirmDelete is sent only when true.
+type DeleteWorkflowRequest struct {
+	ExpectedRevisionID *string
+	ConfirmDelete      bool
+}
+
+// DeleteWorkflow deletes the workflow identified by id. Deleted workflows are
+// reported as not found by the other workflow endpoints.
+//
+// A workflow that is sending or has queued contacts is not deleted on the
+// first attempt: the returned error wraps
+// [ErrWorkflowDeleteConfirmationRequired] and its message describes the impact.
+// Retry with the same ExpectedRevisionID and ConfirmDelete set to true to
+// delete the workflow, stop sending it, and cancel its queued contacts.
+//
+// A stale ExpectedRevisionID also fails with a 409, as a plain *[APIError].
+func (c *Client) DeleteWorkflow(id string, req DeleteWorkflowRequest) error {
+	body := map[string]any{
+		"expectedRevisionId": req.ExpectedRevisionID,
+	}
+	if req.ConfirmDelete {
+		body["confirmDelete"] = req.ConfirmDelete
+	}
+
+	b, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("failed to encode request: %w", err)
+	}
+
+	httpReq, err := c.newRequest(http.MethodDelete, "/workflows/"+id, bytes.NewReader(b))
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.do(httpReq)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent {
+		apiErr := errorFromResponse(resp)
+		if resp.StatusCode == http.StatusConflict && strings.HasSuffix(apiErr.Message, workflowDeleteConfirmationSuffix) {
+			return fmt.Errorf("%w: %w", ErrWorkflowDeleteConfirmationRequired, apiErr)
+		}
+		return apiErr
+	}
+
+	return nil
 }
 
 // RerouteNodeConnectionRequest is the request body for

@@ -65,7 +65,7 @@ client := loops.NewClient("YOUR_API_KEY",
 - Components — `GetComponent`, `ListComponents`, `CreateComponent`, `UpdateComponent`
 - Themes — `GetTheme`, `ListThemes`, `CreateTheme`, `UpdateTheme`
 - Uploads — `Upload`, `CreateUpload`, `CompleteUpload`
-- Workflows — `ListWorkflows`, `GetWorkflow`, `GetWorkflowNode`, `CreateWorkflow`, `UpdateWorkflow`, `ChangeWorkflowMailingList`, `CreateWorkflowNode`, `UpdateWorkflowNode`, `AddWorkflowBranch`, `RerouteNodeConnection`, `DeleteWorkflowNode`, `DeleteWorkflowNodeRecursive`
+- Workflows — `ListWorkflows`, `GetWorkflow`, `GetWorkflowNode`, `CreateWorkflow`, `UpdateWorkflow`, `DeleteWorkflow`, `ChangeWorkflowMailingList`, `CreateWorkflowNode`, `UpdateWorkflowNode`, `AddWorkflowBranch`, `RerouteNodeConnection`, `DeleteWorkflowNode`, `DeleteWorkflowNodeRecursive`
 
 Full reference: [pkg.go.dev/github.com/loops-so/loops-go](https://pkg.go.dev/github.com/loops-so/loops-go).
 
@@ -110,6 +110,27 @@ all, err := loops.Paginate(func(cursor string) ([]loops.Transactional, *loops.Pa
     return client.ListTransactionals(loops.PaginationParams{Cursor: cursor})
 })
 ```
+
+## Deleting workflows
+
+`DeleteWorkflow` takes two attempts when the workflow is sending or has queued contacts. The first attempt fails with an error wrapping `loops.ErrWorkflowDeleteConfirmationRequired`, whose message describes the impact. Retry with the same `ExpectedRevisionID` and `ConfirmDelete` set to `true` to delete the workflow, stop sending it, and cancel its queued contacts.
+
+```go
+rev := workflow.WorkflowRevisionID
+
+err := client.DeleteWorkflow(workflow.ID, loops.DeleteWorkflowRequest{ExpectedRevisionID: rev})
+if errors.Is(err, loops.ErrWorkflowDeleteConfirmationRequired) {
+    err = client.DeleteWorkflow(workflow.ID, loops.DeleteWorkflowRequest{
+        ExpectedRevisionID: rev,
+        ConfirmDelete:      true,
+    })
+}
+if err != nil {
+    log.Fatal(err)
+}
+```
+
+A stale `ExpectedRevisionID` also fails, as a plain `*loops.APIError` with `StatusCode` 409. Refetch the workflow for a current revision token and retry. The confirmation error wraps an `*APIError` too, so `errors.As` still reaches the status code and message.
 
 ## Uploads
 
