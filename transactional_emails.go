@@ -11,8 +11,10 @@ import (
 // Transactional describes a transactional email template managed via the
 // content API. A transactional email can have a draft and/or a published
 // [EmailMessage], linked via DraftEmailMessageID and PublishedEmailMessageID.
+// URL is the transactional email's URL in the Loops app.
 type Transactional struct {
 	ID                      string   `json:"id"`
+	URL                     string   `json:"url"`
 	Name                    string   `json:"name"`
 	DraftEmailMessageID     *string  `json:"draftEmailMessageId"`
 	PublishedEmailMessageID *string  `json:"publishedEmailMessageId"`

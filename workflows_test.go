@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -22,12 +23,14 @@ const listWorkflowsResponse = `{
 	"data": [
 		{
 			"id": "wf_1",
+			"url": "https://app.loops.so/workflows/wf_1",
 			"name": "Onboarding",
 			"createdAt": "2026-05-01T10:00:00Z",
 			"updatedAt": "2026-05-02T10:00:00Z"
 		},
 		{
 			"id": "wf_2",
+			"url": "https://app.loops.so/workflows/wf_2",
 			"name": "Win-back",
 			"createdAt": "2026-04-01T10:00:00Z",
 			"updatedAt": "2026-04-05T10:00:00Z"
@@ -37,6 +40,7 @@ const listWorkflowsResponse = `{
 
 const getSimplifiedWorkflowResponse = `{
 	"id": "wf_1",
+	"url": "https://app.loops.so/workflows/wf_1",
 	"status": "Draft",
 	"workflowRevisionId": "rev_1",
 	"name": "Onboarding",
@@ -86,6 +90,9 @@ func TestListWorkflows(t *testing.T) {
 	}
 	if workflows[0].ID != "wf_1" || workflows[0].Name != "Onboarding" {
 		t.Errorf("workflows[0] = %+v", workflows[0])
+	}
+	if workflows[0].URL != "https://app.loops.so/workflows/wf_1" {
+		t.Errorf("workflows[0].URL = %q", workflows[0].URL)
 	}
 }
 
@@ -188,6 +195,9 @@ func TestGetWorkflow(t *testing.T) {
 			}
 			if want := "/workflows/" + tt.id; gotPath != want {
 				t.Errorf("path = %q, want %q", gotPath, want)
+			}
+			if result.URL != "https://app.loops.so/workflows/wf_1" {
+				t.Errorf("URL = %q", result.URL)
 			}
 			if result.ID != "wf_1" {
 				t.Errorf("ID = %q, want wf_1", result.ID)
@@ -1215,6 +1225,148 @@ func TestDeleteWorkflowNodeRecursive_DryRun(t *testing.T) {
 	}
 	if len(res.NodeIDs) != 2 {
 		t.Errorf("NodeIDs = %v", res.NodeIDs)
+	}
+}
+
+func TestDeleteWorkflow(t *testing.T) {
+	var gotMethod, gotPath string
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod = r.Method
+		gotPath = r.URL.Path
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	err := client.DeleteWorkflow("wf_1", DeleteWorkflowRequest{
+		ExpectedRevisionID: ptr("rev_1"),
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotMethod != http.MethodDelete {
+		t.Errorf("method = %q, want DELETE", gotMethod)
+	}
+	if gotPath != "/workflows/wf_1" {
+		t.Errorf("path = %q", gotPath)
+	}
+	if gotBody["expectedRevisionId"] != "rev_1" {
+		t.Errorf("body = %+v", gotBody)
+	}
+	if _, ok := gotBody["confirmDelete"]; ok {
+		t.Errorf("confirmDelete must be omitted when false: %+v", gotBody)
+	}
+}
+
+func TestDeleteWorkflow_NullRevision(t *testing.T) {
+	var rawBody string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		rawBody = string(b)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	if err := client.DeleteWorkflow("wf_1", DeleteWorkflowRequest{}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(rawBody, `"expectedRevisionId":null`) {
+		t.Errorf("body must send explicit null expectedRevisionId when unset: %s", rawBody)
+	}
+}
+
+func TestDeleteWorkflow_Confirmed(t *testing.T) {
+	var gotBody map[string]any
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody = decodeBody(t, r)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	err := client.DeleteWorkflow("wf_1", DeleteWorkflowRequest{
+		ExpectedRevisionID: ptr("rev_1"),
+		ConfirmDelete:      true,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotBody["confirmDelete"] != true {
+		t.Errorf("body = %+v", gotBody)
+	}
+}
+
+func TestDeleteWorkflow_ConfirmationRequired(t *testing.T) {
+	const message = "This workflow is currently sending and has 3 queued contacts. Deleting it will stop sending it and cancel those queued contacts. Confirm deletion by sending a second request with confirmDelete: true."
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`{"message":` + strconv.Quote(message) + `}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	err := client.DeleteWorkflow("wf_1", DeleteWorkflowRequest{ExpectedRevisionID: ptr("rev_1")})
+	if !errors.Is(err, ErrWorkflowDeleteConfirmationRequired) {
+		t.Fatalf("expected ErrWorkflowDeleteConfirmationRequired, got %v", err)
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected a wrapped *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		t.Errorf("StatusCode = %d, want 409", apiErr.StatusCode)
+	}
+	if apiErr.Message != message {
+		t.Errorf("Message = %q", apiErr.Message)
+	}
+}
+
+func TestDeleteWorkflow_StaleRevision409(t *testing.T) {
+	const message = "workflowRevisionId mismatch. Latest workflowRevisionId is rev_2. Refetch and retry."
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusConflict)
+		w.Write([]byte(`{"message":` + strconv.Quote(message) + `}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	err := client.DeleteWorkflow("wf_1", DeleteWorkflowRequest{ExpectedRevisionID: ptr("old_rev")})
+	if errors.Is(err, ErrWorkflowDeleteConfirmationRequired) {
+		t.Fatal("a stale revision must not be reported as requiring confirmation")
+	}
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusConflict {
+		t.Errorf("StatusCode = %d, want 409", apiErr.StatusCode)
+	}
+	if apiErr.Message != message {
+		t.Errorf("Message = %q", apiErr.Message)
+	}
+}
+
+func TestDeleteWorkflow_NotFound(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		w.Write([]byte(`{"message":"Workflow not found."}`))
+	}))
+	defer server.Close()
+
+	client := NewClient("test-key", WithBaseURL(server.URL))
+	err := client.DeleteWorkflow("wf_missing", DeleteWorkflowRequest{ExpectedRevisionID: ptr("rev_1")})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) {
+		t.Fatalf("expected *APIError, got %T: %v", err, err)
+	}
+	if apiErr.StatusCode != http.StatusNotFound {
+		t.Errorf("StatusCode = %d, want 404", apiErr.StatusCode)
+	}
+	if apiErr.Message != "Workflow not found." {
+		t.Errorf("Message = %q", apiErr.Message)
 	}
 }
 

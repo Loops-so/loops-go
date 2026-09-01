@@ -9,6 +9,9 @@ import "runtime/debug"
 // header sent by [Client] (e.g. "loops-go/v0.2.0").
 var Version = readVersion()
 
+// SpecVersion is the Loops OpenAPI spec version this SDK is built against.
+const SpecVersion = "1.21.9"
+
 const modulePath = "github.com/loops-so/loops-go"
 
 func readVersion() string {

@@ -34,9 +34,11 @@ type CampaignSchedulingRequest struct {
 
 // Campaign describes a campaign, as returned by [Client.GetCampaign],
 // [Client.UpdateCampaign], and [Client.ListCampaigns]. A campaign holds a
-// single [EmailMessage] linked via EmailMessageID.
+// single [EmailMessage] linked via EmailMessageID. URL is the campaign's URL
+// in the Loops app.
 type Campaign struct {
 	ID                string             `json:"id"`
+	URL               string             `json:"url"`
 	EmailMessageID    *string            `json:"emailMessageId"`
 	Name              string             `json:"name"`
 	Status            string             `json:"status"`
